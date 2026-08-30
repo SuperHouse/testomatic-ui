@@ -53,6 +53,15 @@ tr.highlight th {
     color: var(--cui-primary, #321fdb);
 }
 
+.sidebar-version {
+    margin-top: auto;
+    font-size: 0.75rem;
+    opacity: 0.7;
+    line-height: 1.2;
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    padding-top: 0.75rem;
+}
+
 /* Sidebar brand logo styling */
 .sidebar-brand {
     background-color: inherit; /* Inherit sidebar background color */
