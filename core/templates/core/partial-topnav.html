@@ -1,0 +1,19 @@
+<header class="header header-sticky mb-4">
+    <div class="container-fluid">
+        {% if user.is_authenticated %}
+            <div class="d-flex align-items-center w-100 flex-wrap">
+                <button class="header-toggler d-lg-none me-2" type="button" data-coreui-toggle="sidebar" data-coreui-breakpoint="lg" aria-label="Toggle sidebar">
+                    <span class="header-toggler-icon"></span>
+                </button>
+                <ul class="header-nav ms-auto d-flex align-items-center mb-0">
+                    <li class="nav-item">
+                        <span class="nav-link py-0">
+                            <i class="icon cil-user me-2"></i>
+                            {% if user.get_full_name %}{{ user.get_full_name }}{% else %}{{ user.get_username }}{% endif %}
+                        </span>
+                    </li>
+                </ul>
+            </div>
+        {% endif %}
+    </div>
+</header>

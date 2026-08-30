@@ -1,0 +1,35 @@
+{% load static %}
+<aside class="sidebar sidebar-fixed sidebar-lg-show" id="sidebar">
+    <div class="sidebar-brand d-none d-md-flex">
+        <a class="sidebar-brand-full" href="{% url 'home' %}">
+            <img src="{% static 'img/testomatic-logo-wide-transparent.png' %}" alt="Testomatic" style="max-height: 90px; max-width: 200px; padding: 10px 0;">
+        </a>
+    </div>
+    {% if user.is_authenticated %}
+        <ul class="sidebar-nav" data-coreui="navigation" data-simplebar>
+            {% with url_name=request.resolver_match.url_name %}
+            <li class="nav-item">
+                <a class="nav-link {% if url_name == 'home' %}active{% endif %}" href="{% url 'home' %}">
+                    <i class="nav-icon cil-speedometer"></i>
+                    Dashboard
+                </a>
+            </li>
+            {% if user.is_staff %}
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'admin:index' %}">
+                        <i class="nav-icon cil-settings"></i>
+                        Admin
+                    </a>
+                </li>
+            {% endif %}
+            {% endwith %}
+        </ul>
+        <form id="logout-form" method="post" action="{% url 'logout' %}" class="nav-link">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-link nav-link p-0 text-center w-100 border-0">
+                <i class="nav-icon cil-account-logout"></i>
+                Logout
+            </button>
+        </form>
+    {% endif %}
+</aside>

@@ -1,0 +1,38 @@
+{% extends 'core/base.html' %}
+
+{% block main %}
+    {% include "core/partial-sidebar.html" %}
+
+    <div class="body flex-grow-1 d-flex flex-column min-vh-100 overflow-hidden">
+        {% include "core/partial-topnav.html" %}
+
+        <div class="body flex-grow-1 overflow-y-auto">
+            {% if messages %}
+                <div class="px-3 pt-3">
+                    {% for message in messages %}
+                        <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-coreui-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <div class="px-3 pb-4">
+                <div class="container-fluid">
+                    <div class="mb-3">
+                        <h1 class="h3 mb-3">
+                            {% block h1 %}
+                            {% endblock h1 %}
+                        </h1>
+
+                        {% block content %}
+                        {% endblock content %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% include "core/partial-footer.html" %}
+    </div>
+{% endblock main %}

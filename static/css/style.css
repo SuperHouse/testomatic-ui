@@ -1,0 +1,342 @@
+/* CoreUI Custom Styles for SuperHouse Device Register */
+
+/* Custom card hover effect */
+.card {
+    transition: 0.3s;
+    margin-bottom: 1rem;
+}
+
+.card:hover {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    transform: translateY(-2px);
+}
+
+/* Table header styling */
+.table>thead tr {
+    background-color: var(--cui-primary, #321fdb);
+    color: #fff;
+}
+
+tr.highlight th {
+    background-color: var(--cui-primary, #321fdb);
+    color: #fff;
+}
+
+/* Custom badge styling */
+.text-success {
+    background-color: #2eb85c;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    color: #fff;
+    border-radius: 0.25rem;
+}
+
+/* Footer styling */
+.footer {
+    background-color: #fff;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+    padding: 1rem 0;
+}
+
+/* Sidebar footer logout button */
+#logout-form button {
+    background: none;
+    border: 0;
+    cursor: pointer;
+    color: inherit;
+    width: 100%;
+    text-align: left;
+    padding: 0;
+}
+
+#logout-form button:hover {
+    color: var(--cui-primary, #321fdb);
+}
+
+/* Sidebar brand logo styling */
+.sidebar-brand {
+    background-color: inherit; /* Inherit sidebar background color */
+    margin-bottom: 1rem; /* Add gap between logo and menu items */
+}
+
+.sidebar-brand a {
+    display: block;
+    background-color: inherit; /* Match sidebar background */
+}
+
+/* Avatar styling */
+.avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+/* Initials avatar styling */
+.avatar-initials {
+    flex-shrink: 0;
+    user-select: none;
+    line-height: 1;
+}
+
+/* Ensure body content doesn't overlap with fixed sidebar */
+.wrapper {
+    position: relative;
+    overflow-x: hidden;
+}
+
+/* CoreUI fixed sidebar spacing */
+.sidebar-fixed {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    z-index: 1030;
+}
+
+.sidebar-fixed ~ .body {
+    margin-left: 0;
+    transition: margin-left 0.25s ease-in-out;
+}
+
+/* On mobile, sidebar is hidden by default and slides in as a drawer when toggled */
+@media (max-width: 991.98px) {
+    #sidebar.sidebar-fixed {
+        /* CoreUI's own stylesheet hides the sidebar via margin-left below its
+           767.98px breakpoint (only removed when it has CoreUI's own "show"
+           class, which our custom drawer never adds — we drive visibility
+           entirely via transform below). Pin it to 0 so that rule can't fight
+           our transform-based open/close. */
+        margin-left: 0;
+        transform: translateX(-100%);
+        transition: transform 0.25s ease-in-out;
+    }
+
+    #sidebar.sidebar-fixed.sidebar-show {
+        transform: translateX(0);
+    }
+
+    .sidebar-fixed ~ .body {
+        margin-left: 0;
+    }
+}
+
+/* Expanded sidebar state on desktop */
+@media (min-width: 992px) {
+    .sidebar-lg-show.sidebar-fixed ~ .body {
+        margin-left: 256px; /* CoreUI sidebar default width */
+    }
+    
+    /* Collapsed sidebar state - CoreUI uses sidebar-narrow class */
+    .sidebar-narrow.sidebar-fixed ~ .body,
+    .sidebar-fixed:not(.sidebar-lg-show) ~ .body {
+        margin-left: 56px; /* CoreUI sidebar narrow width */
+    }
+}
+
+/* Header toggler (hamburger menu) styling */
+.header-toggler {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem;
+    margin: 0.5rem;
+    background: transparent;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 0.25rem;
+    cursor: pointer;
+    z-index: 1031;
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+    color: #495057;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.header-toggler:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: #000;
+}
+
+.header-toggler-icon {
+    display: block;
+    width: 1.5rem;
+    height: 1.25rem;
+    position: relative;
+}
+
+/* Create three horizontal lines for hamburger icon */
+.header-toggler-icon::before,
+.header-toggler-icon::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background-color: currentColor;
+    transition: all 0.3s;
+}
+
+.header-toggler-icon {
+    background-color: currentColor;
+    height: 2px;
+    width: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    position: relative;
+}
+
+.header-toggler-icon::before {
+    top: -5px;
+}
+
+.header-toggler-icon::after {
+    bottom: -5px;
+}
+
+
+/* Header layout */
+.header {
+    display: flex;
+    align-items: flex-start;
+}
+
+.header .container-fluid {
+    display: flex;
+    align-items: flex-start;
+    flex: 1;
+    padding: 0.5rem 1rem;
+}
+
+.header .container-fluid > div {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    width: 100%;
+    gap: 0.5rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 767.98px) {
+    .sidebar-fixed ~ .body {
+        margin-left: 0;
+    }
+    
+    .header .container-fluid {
+        padding: 0.5rem;
+    }
+    
+    .header form {
+        width: 100%;
+        margin-top: 0.5rem;
+        order: 3;
+    }
+    
+    .header-nav {
+        flex-shrink: 0;
+        order: 2;
+    }
+    
+    .header-toggler {
+        flex-shrink: 0;
+        order: 1;
+    }
+}
+
+@media (min-width: 768px) {
+    .header .container-fluid > div {
+        flex-wrap: nowrap;
+    }
+    
+    .header form {
+        flex: 1;
+        max-width: 400px;
+        order: 1;
+        margin-top: 0;
+    }
+    
+    .header-nav {
+        order: 2;
+        margin-left: auto;
+    }
+    
+    .header-toggler {
+        order: 0;
+    }
+}
+
+/* "Display mode": a clean, kiosk-style view with navigation hidden, toggled via
+   enterDisplayMode() in script.js. #display-mode-btn is the id used by every
+   page's Display button. */
+body.display-mode aside#sidebar {
+    display: none !important;
+}
+body.display-mode header.header {
+    display: none !important;
+}
+body.display-mode footer.footer {
+    display: none !important;
+}
+body.display-mode h1.h3 {
+    display: none !important;
+}
+body.display-mode #display-mode-btn {
+    display: none !important;
+}
+/* General-purpose hook for other page-specific elements (e.g. an "Add" button)
+   that should also disappear in display mode. */
+body.display-mode .hide-in-display-mode {
+    display: none !important;
+}
+/* CoreUI sidebar-fixed reserves space via --cui-sidebar-occupy-start; zero it out */
+body.display-mode {
+    --cui-sidebar-occupy-start: 0 !important;
+}
+body.display-mode .body.flex-grow-1 {
+    margin-left: 0 !important;
+    transition: none !important;
+}
+/* Sidebar backdrop — shown on mobile when drawer is open */
+#sidebar-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1029;
+}
+
+/* Tabs (issue #103): CoreUI's default nav-tabs leaves inactive tabs looking
+   like plain (blue) links, and nothing visually ties the active tab to the
+   content below it. Give inactive tabs a chip-like background so they read
+   as tabs, and pair with .tab-panel below so the strip attaches to a bordered
+   panel instead of floating over bare page background. */
+.nav-tabs .nav-link {
+    color: var(--cui-body-color);
+}
+
+.nav-tabs .nav-link:not(.active) {
+    background-color: var(--cui-tertiary-bg);
+}
+
+.nav-tabs .nav-link:not(.active):hover {
+    background-color: var(--cui-secondary-bg);
+    color: var(--cui-body-color);
+}
+
+.nav-tabs .nav-link.active {
+    font-weight: 600;
+}
+
+/* Bordered panel a .nav-tabs strip sits directly on top of (no gap), so the
+   active tab's bottom border merges into the panel's top edge. */
+.tab-panel {
+    background-color: var(--cui-card-bg);
+    border: var(--cui-border-width, 1px) solid var(--cui-card-border-color);
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    border-bottom-left-radius: var(--cui-card-border-radius);
+    border-bottom-right-radius: var(--cui-card-border-radius);
+    padding: 1.25rem;
+}
