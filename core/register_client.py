@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 SuperHouse Automation Pty Ltd <info@superhouse.tv>
-"""Client for the Register Test Suite Package endpoints (Register's API.md, "Test Suite
-Endpoints"). Both endpoints are staff-only on Register's side, and require REGISTER_API_URL /
-REGISTER_API_KEY to be configured (see .env.template)."""
+"""Client for the Register API endpoints this project consumes (Register's API.md): the Test
+Suite Package endpoints (staff-only on Register's side) and the Design list endpoint. Requires
+REGISTER_API_URL / REGISTER_API_KEY to be configured (see .env.template)."""
 import requests
 from django.conf import settings
 
@@ -57,3 +57,11 @@ def fetch_test_suite(suite_id):
     """Downloads one Test Suite Package by its id (as returned by list_test_suites), returning
     the raw ZIP archive bytes (containing test-suite-definition.json)."""
     return _get(f'test-suites/{suite_id}/download/').content
+
+
+def list_designs(client_pk=None):
+    """Returns every Design visible to this API key (every design, for a staff key), or just
+    those for one client when client_pk is given, as a list of dicts (id, sku, client, name,
+    hw_version, description)."""
+    params = {'client_pk': client_pk} if client_pk is not None else None
+    return _get('designs/', params=params).json()

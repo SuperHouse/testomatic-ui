@@ -1,0 +1,70 @@
+{% extends "core/base-with-sidebar.html" %}
+
+{% block title %}
+    Test Suites
+{% endblock title %}
+
+{% block h1 %}
+    Test Suites
+{% endblock h1 %}
+
+{% block content %}
+    <form method="post" action="{% url 'test_suites:update' %}" class="mb-3">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-primary">
+            <i class="cil-reload me-1"></i>
+            Update Now
+        </button>
+    </form>
+
+    {% if not designs %}
+        <div class="card">
+            <div class="card-body">
+                <p class="mb-0">No Test Suites yet. Click "Update Now" to fetch the list from Register.</p>
+            </div>
+        </div>
+    {% endif %}
+
+    {% for design in designs %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="d-flex align-items-center mb-3">
+                    <i class="cil-memory me-2" style="font-size: 2rem; opacity: 0.5;"></i>
+                    <div>
+                        <h5 class="mb-0">{{ design.name }}</h5>
+                        <div class="text-body-secondary small">{{ design.sku }}{% if design.hw_version %} &middot; hw {{ design.hw_version }}{% endif %}</div>
+                    </div>
+                </div>
+                <table class="table table-sm mb-0">
+                    <thead>
+                        <tr>
+                            <th>Version</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Package</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for test_suite in design.test_suites.all %}
+                            <tr>
+                                <td>{{ test_suite.version }}</td>
+                                <td>{{ test_suite.get_status_display }}</td>
+                                <td>{{ test_suite.register_created_dt }}</td>
+                                <td>
+                                    {% if test_suite.package_file %}
+                                        <span class="badge text-bg-success">Fetched</span>
+                                    {% else %}
+                                        <form method="post" action="{% url 'test_suites:fetch' test_suite.pk %}" class="d-inline">
+                                            {% csrf_token %}
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary">Fetch</button>
+                                        </form>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    {% endfor %}
+{% endblock content %}

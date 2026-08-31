@@ -7,11 +7,17 @@
     </div>
     {% if user.is_authenticated %}
         <ul class="sidebar-nav" data-coreui="navigation" data-simplebar>
-            {% with url_name=request.resolver_match.url_name %}
+            {% with url_name=request.resolver_match.url_name app_name=request.resolver_match.app_name %}
             <li class="nav-item">
                 <a class="nav-link {% if url_name == 'home' %}active{% endif %}" href="{% url 'home' %}">
                     <i class="nav-icon cil-speedometer"></i>
                     Dashboard
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if app_name == 'test_suites' %}active{% endif %}" href="{% url 'test_suites:list' %}">
+                    <i class="nav-icon cil-layers"></i>
+                    Test Suites
                 </a>
             </li>
             {% if user.is_staff %}
