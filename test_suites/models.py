@@ -18,6 +18,7 @@ class Design(models.Model):
     register_id = models.PositiveIntegerField(unique=True)
     sku = models.CharField(max_length=255)
     name = models.CharField(max_length=255)
+    client_name = models.CharField(max_length=255, blank=True)
     hw_version = models.CharField(max_length=50, blank=True)
     description = models.TextField(blank=True)
     thumbnail = models.FileField(upload_to=design_thumbnail_upload_path, null=True, blank=True)
@@ -57,3 +58,9 @@ class TestSuite(models.Model):
 
     def __str__(self):
         return f'{self.design} v{self.version}'
+
+    def is_current_version(self):
+        """Whether this is the highest version number synced for its design - compared against
+        every synced version, not just fetched ones, since a newer version can exist in our
+        metadata before its package has been downloaded."""
+        return self.version == self.design.test_suites.aggregate(models.Max('version'))['version__max']

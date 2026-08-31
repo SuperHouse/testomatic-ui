@@ -22,6 +22,7 @@ def sync_test_suites():
             defaults={
                 'sku': data['sku'],
                 'name': data['name'],
+                'client_name': (data.get('client') or {}).get('company_name') or '',
                 'hw_version': data['hw_version'] or '',
                 'description': data['description'] or '',
             },

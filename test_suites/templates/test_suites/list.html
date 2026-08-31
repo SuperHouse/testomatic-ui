@@ -9,6 +9,10 @@
 {% endblock h1 %}
 
 {% block content %}
+    <style>
+        .test-suite-versions tr.clickable-row:hover td { background-color: rgba(0,0,0,0.075) !important; }
+    </style>
+
     <form method="post" action="{% url 'test_suites:update' %}" class="mb-3">
         {% csrf_token %}
         <button type="submit" class="btn btn-primary">
@@ -30,29 +34,31 @@
             <div class="card-body">
                 <div class="d-flex align-items-center mb-3">
                     {% if design.thumbnail %}
-                        <img src="{{ design.thumbnail.url }}" alt="" class="me-2" style="width: 32px; height: 32px; object-fit: contain;">
+                        <img src="{{ design.thumbnail.url }}" alt="" class="me-2" style="max-height: 50px; max-width: 60px; object-fit: contain; vertical-align: middle;">
                     {% else %}
                         <i class="cil-memory me-2" style="font-size: 2rem; opacity: 0.5;"></i>
                     {% endif %}
                     <div>
-                        <h5 class="mb-0">{{ design.name }}</h5>
+                        <h5 class="mb-0">{{ design.client_name }} <b>{{ design.name }}</b> v{{ design.hw_version }}</h5>
                         <div class="text-body-secondary small">{{ design.sku }}{% if design.hw_version %} &middot; hw {{ design.hw_version }}{% endif %}</div>
                     </div>
                 </div>
-                <table class="table table-sm mb-0">
+                <table class="table table-sm mb-0 test-suite-versions">
                     <thead>
                         <tr>
                             <th>Version</th>
-                            <th>Status</th>
                             <th>Created</th>
                             <th>Package</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for test_suite in design.test_suites.all %}
-                            <tr>
+                            {% if test_suite.package_file %}
+                                <tr class="clickable-row" onclick="window.location='{% url 'test_suites:detail' test_suite.pk %}'" style="cursor: pointer;">
+                            {% else %}
+                                <tr>
+                            {% endif %}
                                 <td>{{ test_suite.version }}</td>
-                                <td>{{ test_suite.get_status_display }}</td>
                                 <td>{{ test_suite.register_created_dt }}</td>
                                 <td>
                                     {% if test_suite.package_file %}

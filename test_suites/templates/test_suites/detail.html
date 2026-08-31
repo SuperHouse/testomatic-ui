@@ -1,0 +1,82 @@
+{% extends "core/base-with-sidebar.html" %}
+
+{% block title %}
+    {{ test_suite.design.name }} - Test Suite v{{ test_suite.version }}
+{% endblock title %}
+
+{% block h1 %}
+    {{ test_suite.design.name }} - Test Suite v{{ test_suite.version }}
+    {% if test_suite.is_current_version %}
+        <span class="badge bg-success">Current Version</span>
+    {% else %}
+        <span class="badge bg-danger">Old Version</span>
+    {% endif %}
+{% endblock h1 %}
+
+{% block content %}
+    <div class="mb-3">
+        <a href="{% url 'test_suites:list' %}" class="btn btn-secondary">Back to Test Suites</a>
+    </div>
+
+    {% if notes %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h6 class="card-title">Notes</h6>
+                <p class="mb-0">{{ notes|linebreaksbr }}</p>
+            </div>
+        </div>
+    {% endif %}
+
+    <div class="card">
+        <div class="card-body">
+            <h5 class="card-title">Test Steps</h5>
+            <table class="table mb-0">
+                <tbody>
+                    {% for step in steps %}
+                        <tr>
+                            <td class="p-0 border-0">
+                                <div class="rounded mb-2" style="border: 1px solid {{ step.get_color }}; border-left-width: 6px; overflow: hidden;">
+                                    <div class="d-flex align-items-center gap-2 px-2 py-2">
+                                        <span class="badge" style="background-color: {{ step.get_color }};">{{ step.get_step_type_display }}</span>
+                                        <strong>{{ step.name }}</strong>
+                                        {% if step.abort_on_fail %}
+                                            <span class="badge bg-danger ms-auto">Abort On Fail</span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="px-2 py-1 small text-body-secondary">
+                                        {{ step.get_config_summary }}
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td class="border-0"><i>No steps were defined in this version.</i></td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-body">
+            <h5 class="card-title">Manual Checks</h5>
+            <table class="table mb-0">
+                <tbody>
+                    {% for check in manual_checks %}
+                        <tr>
+                            <td class="p-0 border-0">
+                                <div class="rounded mb-2 px-2 py-2" style="border: 1px solid {{ check.get_color }}; border-left-width: 6px;">{{ check.text }}</div>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td class="border-0"><i>No manual checks were defined in this version.</i></td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% endblock content %}
