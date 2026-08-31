@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 SuperHouse Automation Pty Ltd <info@superhouse.tv>
 """Client for the Register API endpoints this project consumes (Register's API.md): the Test
-Suite Package endpoints (staff-only on Register's side) and the Design list endpoint. Requires
-REGISTER_API_URL / REGISTER_API_KEY to be configured (see .env.template)."""
+Suite Package endpoints (staff-only on Register's side), the Design list endpoint, and the
+Design Asset endpoints. Requires REGISTER_API_URL / REGISTER_API_KEY to be configured (see
+.env.template)."""
 import requests
 from django.conf import settings
 
@@ -65,3 +66,24 @@ def list_designs(client_pk=None):
     hw_version, description)."""
     params = {'client_pk': client_pk} if client_pk is not None else None
     return _get('designs/', params=params).json()
+
+
+def list_design_assets(design_id=None, asset_type=None):
+    """Returns Design Assets (e.g. a Design's PCB_TOP/PCB_BOTTOM images), optionally filtered by
+    design and/or asset type, as a list of dicts (id, design_id, asset_type, name,
+    uploaded_dt)."""
+    params = {}
+    if design_id is not None:
+        params['design_id'] = design_id
+    if asset_type is not None:
+        params['asset_type'] = asset_type
+    return _get('design-assets/', params=params or None).json()
+
+
+def fetch_design_asset(asset_id):
+    """Downloads one Design Asset's file by its id (as returned by list_design_assets).
+    Returns (raw file bytes, content-type) - unlike fetch_test_suite, the content-type isn't
+    fixed (a Design Asset can be a PNG, JPEG, etc.), so the caller needs it to pick a correct
+    file extension when saving."""
+    response = _get(f'design-assets/{asset_id}/download/')
+    return response.content, response.headers.get('Content-Type')

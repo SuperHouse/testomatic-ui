@@ -1,17 +1,26 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 SuperHouse Automation Pty Ltd <info@superhouse.tv>
+from pathlib import Path
+
 from django.db import models
+
+
+def design_thumbnail_upload_path(instance, filename):
+    return f'design_thumbnails/{instance.register_id}{Path(filename).suffix}'
 
 
 class Design(models.Model):
     """Local cache of a Register Design (device/models.py Design), refreshed via
-    core.register_client.list_designs(). No thumbnail field yet - Register doesn't expose one
-    over the API (see issue #117 on the Register repo); the UI shows a generic icon instead."""
+    core.register_client.list_designs(). thumbnail is null until fetch_design_thumbnail() (see
+    test_suites.sync) finds a PCB_TOP Design Asset for it over Register's issue #117 API - a
+    design with no PCB_TOP asset (or fetched before #117 existed) stays null, and the UI falls
+    back to a generic icon."""
     register_id = models.PositiveIntegerField(unique=True)
     sku = models.CharField(max_length=255)
     name = models.CharField(max_length=255)
     hw_version = models.CharField(max_length=50, blank=True)
     description = models.TextField(blank=True)
+    thumbnail = models.FileField(upload_to=design_thumbnail_upload_path, null=True, blank=True)
     synced_dt = models.DateTimeField(auto_now=True)
 
     class Meta:

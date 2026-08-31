@@ -17,11 +17,14 @@ This project has **its own** Django project (own `manage.py`, own `conf/`, own d
 ```
 testomatic-ui/
 ├── conf/            # Django project settings, URLs (mirrors Register's "conf" app naming)
-├── core/            # Main app: dashboard view, base templates/theme
+├── core/            # Dashboard view, base templates/theme, and register_client.py (see below)
 │   ├── templates/core/
 │   ├── templates/registration/   # login.html
+│   ├── register_client.py        # Register API client
 │   └── views.py / urls.py
+├── test_suites/     # Local Design/Test Suite cache and the Test Suites page (see below)
 ├── static/          # CSS/JS/img shared visual theme with Register (see Theme below)
+├── media/           # Downloaded Test Suite Package ZIPs (MEDIA_ROOT, gitignored)
 ├── manage.py
 └── requirements.txt
 ```
@@ -46,7 +49,28 @@ The sidebar matches Register's structure exactly: the SuperHouse logo (`static/i
 
 ## Data Model / Auth
 
-No custom models yet beyond Django's defaults — this is a fresh skeleton. Auth currently uses Django's standard `django.contrib.auth` `User` model and session-based login (`django.contrib.auth.urls`), which is separate from Register's user accounts. Whether/how a Testomatic device's local login should relate to a Register user (e.g. via the API key a device holds) is an open question for when real features are added.
+`core` has no custom models. `test_suites` has `Design` and `TestSuite` — see Test Suites below. Auth currently uses Django's standard `django.contrib.auth` `User` model and session-based login (`django.contrib.auth.urls`), which is separate from Register's user accounts. Whether/how a Testomatic device's local login should relate to a Register user (e.g. via the API key a device holds) is an open question for when real features are added.
+
+## Register API Client
+
+`core/register_client.py` wraps the Register endpoints this project consumes (see Register's `API.md`). All requests send `X-API-Key: REGISTER_API_KEY` and raise `RegisterAPIError` (with `.status_code`/`.message`) on any failure, including unconfigured settings.
+
+- `list_designs(client_pk=None)` — `GET /api/v1/designs/`. A staff key sees every design.
+- `list_test_suites(design_id=None)` — `GET /api/v1/test-suites/`. **Staff-only** on Register's side — a non-staff key gets a `403`. Only ever returns finalised (`SAVED`) suites, never `DRAFT`.
+- `fetch_test_suite(suite_id)` — `GET /api/v1/test-suites/{id}/download/`, returns the raw ZIP bytes. Also staff-only.
+
+Register also IP-allowlists API callers (`API_ALLOW_IPV4_SUBNET`) — a device's key needs both staff access and an allowlisted IP to reach the Test Suite endpoints.
+
+## Test Suites
+
+The `test_suites` app (nav: "Test Suites", `/test-suites/`) caches Register's Design/Test Suite data locally and downloads Test Suite Packages, so a device isn't dependent on Register being reachable to run a suite it already has.
+
+- `Design` — local cache of a Register Design (`register_id`, `sku`, `name`, `hw_version`, `description`), plus `thumbnail` (a `FileField`, null until fetched). `sync.py:fetch_design_thumbnail()` fetches a design's `PCB_TOP` Design Asset over Register's issue #117 API (`core.register_client.list_design_assets()`/`fetch_design_asset()`) the first time it's missing, saved under `MEDIA_ROOT/design_thumbnails/<register_id>.<ext>` (extension guessed from the response's `Content-Type`, since a Design Asset isn't always a PNG). A design with no `PCB_TOP` asset stays `thumbnail=None` — not an error — and the list page falls back to a generic `cil-memory` icon.
+- `TestSuite` — local cache of one Register Test Suite Package (`register_id`, `design` FK, `version`, `status`, `register_created_dt`), plus `package_file` (a `FileField` — the downloaded ZIP lives on disk under `MEDIA_ROOT/test_suite_packages/<sku>/<register_id>.zip`, not as a DB blob) and `package_fetched_dt` (null until fetched).
+- `test_suites/sync.py:sync_test_suites()` — upserts `Design`/`TestSuite` metadata from Register (insert-only for `TestSuite`; Register never mutates a finalised suite), then fetches the package for the **latest version only** of each design's Test Suite. Older versions stay listed without a package unless fetched manually. Never deletes rows or files.
+- Reached three ways: the `sync_test_suites` management command (cron-able), the "Update Now" button on `/test-suites/`, and per-row "Fetch" buttons for older versions (`fetch_test_suite_package()`) — all three call the same `sync.py` functions, one code path. `fetch_design_thumbnail()` only runs from inside `sync_test_suites()` itself (for any design that has a `TestSuite`), not as a separate manual action — there's no "Fetch" button for a missing thumbnail.
+- The list page only shows designs that actually have a `TestSuite` (`Design.objects.filter(test_suites__isnull=False)`), not every design in Register's catalog.
+- Tests that call the real `sync_test_suites()`/`fetch_test_suite_package()` (not fully mocked) must subclass `test_suites.tests.MediaIsolatedTestCase`, not `TestCase` directly — `FileField` writes aren't rolled back by Django's test transaction, so without it they'd leak files into the real `MEDIA_ROOT`.
 
 ## Configuration
 
@@ -62,4 +86,4 @@ Environment variables load from `.env` (see `.env.template`). Notable ones:
 
 ## Status
 
-This is an early skeleton (Django admin + a themed shell + a placeholder dashboard). No Testomatic-specific features (test execution, firmware programming, Register sync) exist yet — those are still to be designed and added. The GitHub repo is [github.com/SuperHouse/testomatic-ui](https://github.com/SuperHouse/testomatic-ui).
+Still early: a themed shell, the Register API client, the Test Suites list/fetch feature (issues #1 and #2), and Design thumbnails on that list (Register issue #117) exist. Test execution and firmware programming don't exist yet. The GitHub repo is [github.com/SuperHouse/testomatic-ui](https://github.com/SuperHouse/testomatic-ui).

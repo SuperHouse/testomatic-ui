@@ -29,7 +29,11 @@
         <div class="card mb-3">
             <div class="card-body">
                 <div class="d-flex align-items-center mb-3">
-                    <i class="cil-memory me-2" style="font-size: 2rem; opacity: 0.5;"></i>
+                    {% if design.thumbnail %}
+                        <img src="{{ design.thumbnail.url }}" alt="" class="me-2" style="width: 32px; height: 32px; object-fit: contain;">
+                    {% else %}
+                        <i class="cil-memory me-2" style="font-size: 2rem; opacity: 0.5;"></i>
+                    {% endif %}
                     <div>
                         <h5 class="mb-0">{{ design.name }}</h5>
                         <div class="text-body-secondary small">{{ design.sku }}{% if design.hw_version %} &middot; hw {{ design.hw_version }}{% endif %}</div>

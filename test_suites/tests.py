@@ -10,7 +10,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from .models import Design, TestSuite
-from .sync import fetch_test_suite_package, sync_test_suites
+from .sync import fetch_design_thumbnail, fetch_test_suite_package, sync_test_suites
 
 
 class MediaIsolatedTestCase(TestCase):
@@ -42,11 +42,12 @@ SUITES = [
 ]
 
 
+@patch('test_suites.sync.list_design_assets', return_value=[])
 @patch('test_suites.sync.fetch_test_suite')
 @patch('test_suites.sync.list_test_suites')
 @patch('test_suites.sync.list_designs')
 class SyncTestSuitesTest(MediaIsolatedTestCase):
-    def test_creates_designs_and_test_suites(self, mock_list_designs, mock_list_test_suites, mock_fetch):
+    def test_creates_designs_and_test_suites(self, mock_list_designs, mock_list_test_suites, mock_fetch, mock_list_design_assets):
         mock_list_designs.return_value = DESIGNS
         mock_list_test_suites.return_value = SUITES
         mock_fetch.return_value = b'PK\x03\x04zip-bytes'
@@ -58,7 +59,7 @@ class SyncTestSuitesTest(MediaIsolatedTestCase):
         self.assertEqual(design.name, 'Widget')
         self.assertEqual(TestSuite.objects.count(), 2)
 
-    def test_only_fetches_latest_version_per_design(self, mock_list_designs, mock_list_test_suites, mock_fetch):
+    def test_only_fetches_latest_version_per_design(self, mock_list_designs, mock_list_test_suites, mock_fetch, mock_list_design_assets):
         mock_list_designs.return_value = DESIGNS
         mock_list_test_suites.return_value = SUITES
         mock_fetch.return_value = b'PK\x03\x04zip-bytes'
@@ -71,7 +72,7 @@ class SyncTestSuitesTest(MediaIsolatedTestCase):
         self.assertFalse(older.package_file)
         mock_fetch.assert_called_once_with(6)
 
-    def test_is_insert_only_for_existing_test_suites(self, mock_list_designs, mock_list_test_suites, mock_fetch):
+    def test_is_insert_only_for_existing_test_suites(self, mock_list_designs, mock_list_test_suites, mock_fetch, mock_list_design_assets):
         mock_list_designs.return_value = DESIGNS
         mock_list_test_suites.return_value = SUITES
         mock_fetch.return_value = b'PK\x03\x04zip-bytes'
@@ -83,7 +84,7 @@ class SyncTestSuitesTest(MediaIsolatedTestCase):
         self.assertEqual(TestSuite.objects.count(), 2)
         mock_fetch.assert_not_called()
 
-    def test_skips_test_suite_for_unknown_design(self, mock_list_designs, mock_list_test_suites, mock_fetch):
+    def test_skips_test_suite_for_unknown_design(self, mock_list_designs, mock_list_test_suites, mock_fetch, mock_list_design_assets):
         mock_list_designs.return_value = []
         mock_list_test_suites.return_value = SUITES
 
@@ -91,7 +92,7 @@ class SyncTestSuitesTest(MediaIsolatedTestCase):
 
         self.assertEqual(TestSuite.objects.count(), 0)
 
-    def test_handles_null_description_and_hw_version(self, mock_list_designs, mock_list_test_suites, mock_fetch):
+    def test_handles_null_description_and_hw_version(self, mock_list_designs, mock_list_test_suites, mock_fetch, mock_list_design_assets):
         # Register returns JSON null, not an empty string, for an unset optional field.
         mock_list_designs.return_value = [
             {'id': 133, 'sku': 'ABC123', 'client': {'id': 1, 'company_name': 'Acme'}, 'name': 'Widget',
@@ -104,6 +105,30 @@ class SyncTestSuitesTest(MediaIsolatedTestCase):
         design = Design.objects.get(register_id=133)
         self.assertEqual(design.hw_version, '')
         self.assertEqual(design.description, '')
+
+    def test_fetches_thumbnail_for_design_with_a_test_suite(self, mock_list_designs, mock_list_test_suites, mock_fetch, mock_list_design_assets):
+        mock_list_designs.return_value = DESIGNS
+        mock_list_test_suites.return_value = SUITES
+        mock_fetch.return_value = b'PK\x03\x04zip-bytes'
+        mock_list_design_assets.return_value = [
+            {'id': 42, 'design_id': 133, 'asset_type': 'PCB_TOP', 'name': 'top', 'uploaded_dt': '2026-08-01T00:00:00Z'},
+        ]
+
+        with patch('test_suites.sync.fetch_design_asset', return_value=(b'png-bytes', 'image/png')) as mock_fetch_asset:
+            sync_test_suites()
+
+        design = Design.objects.get(register_id=133)
+        self.assertTrue(design.thumbnail)
+        mock_list_design_assets.assert_called_once_with(design_id=133, asset_type='PCB_TOP')
+        mock_fetch_asset.assert_called_once_with(42)
+
+    def test_no_thumbnail_fetch_for_design_without_a_test_suite(self, mock_list_designs, mock_list_test_suites, mock_fetch, mock_list_design_assets):
+        mock_list_designs.return_value = DESIGNS
+        mock_list_test_suites.return_value = []  # design 133 has no Test Suite
+
+        sync_test_suites()
+
+        mock_list_design_assets.assert_not_called()
 
 
 class FetchTestSuitePackageTest(MediaIsolatedTestCase):
@@ -133,7 +158,49 @@ class FetchTestSuitePackageTest(MediaIsolatedTestCase):
         mock_fetch.assert_not_called()
 
 
-class TestSuiteViewsTest(TestCase):
+class FetchDesignThumbnailTest(MediaIsolatedTestCase):
+    def setUp(self):
+        self.design = Design.objects.create(register_id=133, sku='ABC123', name='Widget', hw_version='1.0')
+
+    @patch('test_suites.sync.fetch_design_asset')
+    @patch('test_suites.sync.list_design_assets')
+    def test_fetches_and_stores_thumbnail(self, mock_list_assets, mock_fetch_asset):
+        mock_list_assets.return_value = [
+            {'id': 42, 'design_id': 133, 'asset_type': 'PCB_TOP', 'name': 'top', 'uploaded_dt': '2026-08-01T00:00:00Z'},
+        ]
+        mock_fetch_asset.return_value = (b'png-bytes', 'image/png')
+
+        fetch_design_thumbnail(self.design)
+
+        self.design.refresh_from_db()
+        self.assertTrue(self.design.thumbnail)
+        self.assertTrue(self.design.thumbnail.name.endswith('.png'))
+        mock_list_assets.assert_called_once_with(design_id=133, asset_type='PCB_TOP')
+        mock_fetch_asset.assert_called_once_with(42)
+
+    @patch('test_suites.sync.fetch_design_asset')
+    @patch('test_suites.sync.list_design_assets')
+    def test_leaves_thumbnail_null_when_no_pcb_top_asset(self, mock_list_assets, mock_fetch_asset):
+        mock_list_assets.return_value = []
+
+        fetch_design_thumbnail(self.design)
+
+        self.design.refresh_from_db()
+        self.assertFalse(self.design.thumbnail)
+        mock_fetch_asset.assert_not_called()
+
+    @patch('test_suites.sync.fetch_design_asset')
+    @patch('test_suites.sync.list_design_assets')
+    def test_does_not_refetch_existing_thumbnail(self, mock_list_assets, mock_fetch_asset):
+        self.design.thumbnail.save('existing.png', ContentFile(b'already here'), save=True)
+
+        fetch_design_thumbnail(self.design)
+
+        mock_list_assets.assert_not_called()
+        mock_fetch_asset.assert_not_called()
+
+
+class TestSuiteViewsTest(MediaIsolatedTestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username='testuser', password='secret123')
         self.client.force_login(self.user)
@@ -154,6 +221,19 @@ class TestSuiteViewsTest(TestCase):
         response = self.client.get(reverse('test_suites:list'))
 
         self.assertNotContains(response, 'No Suites Yet')
+
+    def test_list_view_shows_generic_icon_when_no_thumbnail(self):
+        response = self.client.get(reverse('test_suites:list'))
+
+        self.assertContains(response, 'cil-memory')
+        self.assertNotContains(response, '<img src="/media/design_thumbnails/')
+
+    def test_list_view_shows_thumbnail_image_when_present(self):
+        self.design.thumbnail.save('133.png', ContentFile(b'png-bytes'), save=True)
+
+        response = self.client.get(reverse('test_suites:list'))
+
+        self.assertContains(response, '<img src="/media/design_thumbnails/')
 
     @patch('test_suites.views.sync_test_suites')
     def test_update_view_triggers_sync(self, mock_sync):

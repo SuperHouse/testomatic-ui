@@ -2,10 +2,12 @@
 # Copyright (C) 2026 SuperHouse Automation Pty Ltd <info@superhouse.tv>
 """Refreshes the local Design/TestSuite cache from Register. Shared by the sync_test_suites
 management command (cron-able) and the "Update Now" view - one code path for both."""
+import mimetypes
+
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
-from core.register_client import fetch_test_suite, list_designs, list_test_suites
+from core.register_client import fetch_design_asset, fetch_test_suite, list_design_assets, list_designs, list_test_suites
 from .models import Design, TestSuite
 
 
@@ -45,8 +47,14 @@ def sync_test_suites():
 
     for design in Design.objects.all():
         latest = design.test_suites.order_by('-version').first()
-        if latest is not None and not latest.package_file:
+        if latest is None:
+            # No Test Suite for this design, so it won't appear on the Test Suites list -
+            # skip its thumbnail too, rather than fetching one for every design in Register.
+            continue
+        if not latest.package_file:
             fetch_test_suite_package(latest)
+        if not design.thumbnail:
+            fetch_design_thumbnail(design)
 
 
 def fetch_test_suite_package(test_suite):
@@ -60,3 +68,19 @@ def fetch_test_suite_package(test_suite):
     test_suite.package_file.save(f'{test_suite.register_id}.zip', ContentFile(content), save=False)
     test_suite.package_fetched_dt = timezone.now()
     test_suite.save()
+
+
+def fetch_design_thumbnail(design):
+    """Fetches and stores a design's PCB_TOP Design Asset as its thumbnail (Register issue
+    #117), if one exists. Leaves design.thumbnail null (the UI falls back to a generic icon)
+    when the design has no PCB_TOP asset - not an error, just nothing to show."""
+    if design.thumbnail:
+        return
+
+    assets = list_design_assets(design_id=design.register_id, asset_type='PCB_TOP')
+    if not assets:
+        return
+
+    content, content_type = fetch_design_asset(assets[0]['id'])
+    extension = mimetypes.guess_extension(content_type) if content_type else None
+    design.thumbnail.save(f'{design.register_id}{extension or ".png"}', ContentFile(content), save=True)

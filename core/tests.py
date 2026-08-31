@@ -5,7 +5,13 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from __VERSION import VERSION
-from core.register_client import RegisterAPIError, fetch_test_suite, list_test_suites
+from core.register_client import (
+    RegisterAPIError,
+    fetch_design_asset,
+    fetch_test_suite,
+    list_design_assets,
+    list_test_suites,
+)
 
 
 class VersionDisplayTest(TestCase):
@@ -21,8 +27,8 @@ class VersionDisplayTest(TestCase):
 
 @override_settings(REGISTER_API_URL='https://register.example.com', REGISTER_API_KEY='test-key')
 class RegisterClientTest(TestCase):
-    def _mock_response(self, status_code, json_data=None, content=b''):
-        response = Mock(status_code=status_code, content=content)
+    def _mock_response(self, status_code, json_data=None, content=b'', headers=None):
+        response = Mock(status_code=status_code, content=content, headers=headers or {})
         response.json.side_effect = lambda: json_data if json_data is not None else (_ for _ in ()).throw(ValueError)
         response.text = '' if json_data is None else str(json_data)
         return response
@@ -109,3 +115,57 @@ class RegisterClientTest(TestCase):
             list_test_suites()
 
         mock_get.assert_not_called()
+
+    @patch('core.register_client.requests.get')
+    def test_list_design_assets_success(self, mock_get):
+        assets = [{'id': 42, 'design_id': 1, 'asset_type': 'PCB_TOP', 'name': 'top', 'uploaded_dt': '2026-08-01T00:00:00Z'}]
+        mock_get.return_value = self._mock_response(200, json_data=assets)
+
+        result = list_design_assets()
+
+        self.assertEqual(result, assets)
+        mock_get.assert_called_once_with(
+            'https://register.example.com/api/v1/design-assets/',
+            headers={'X-API-Key': 'test-key'},
+            params=None,
+            timeout=10,
+        )
+
+    @patch('core.register_client.requests.get')
+    def test_list_design_assets_filters_by_design_id_and_type(self, mock_get):
+        mock_get.return_value = self._mock_response(200, json_data=[])
+
+        list_design_assets(design_id=1, asset_type='PCB_TOP')
+
+        mock_get.assert_called_once_with(
+            'https://register.example.com/api/v1/design-assets/',
+            headers={'X-API-Key': 'test-key'},
+            params={'design_id': 1, 'asset_type': 'PCB_TOP'},
+            timeout=10,
+        )
+
+    @patch('core.register_client.requests.get')
+    def test_fetch_design_asset_success(self, mock_get):
+        mock_get.return_value = self._mock_response(200, content=b'\x89PNGfake', headers={'Content-Type': 'image/png'})
+
+        content, content_type = fetch_design_asset(42)
+
+        self.assertEqual(content, b'\x89PNGfake')
+        self.assertEqual(content_type, 'image/png')
+        mock_get.assert_called_once_with(
+            'https://register.example.com/api/v1/design-assets/42/download/',
+            headers={'X-API-Key': 'test-key'},
+            params=None,
+            timeout=10,
+        )
+
+    @patch('core.register_client.requests.get')
+    def test_fetch_design_asset_internal_forbidden_raises(self, mock_get):
+        mock_get.return_value = self._mock_response(
+            403, json_data={'message': 'This asset is internal and not available to non-staff API keys'}
+        )
+
+        with self.assertRaises(RegisterAPIError) as ctx:
+            fetch_design_asset(42)
+
+        self.assertEqual(ctx.exception.status_code, 403)
