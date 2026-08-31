@@ -33,14 +33,16 @@ source venv/bin/activate
 python manage.py runserver
 ```
 
-- UI: http://127.0.0.1:8000/
-- Admin: http://127.0.0.1:8000/admin/
+Defaults to port 8001 (overridden in `core/management/commands/runserver.py`, not Django's usual 8000), so this can run alongside Register's dev server on the same machine.
+
+- UI: http://127.0.0.1:8001/
+- Admin: http://127.0.0.1:8001/admin/
 
 ## Theme
 
 The UI intentionally matches Register's look: CoreUI 4.3.2 + CoreUI Icons + Bootstrap Icons (same CDN versions), the same sidebar/header/footer layout pattern (`base.html` → `base-with-sidebar.html` → `partial-sidebar.html`/`partial-topnav.html`/`partial-footer.html`), and `static/css/style.css` / `static/js/script.js` copied from Register's own copies. If Register's shared theme files change in a way that should apply here too (e.g. a new CoreUI version, a layout fix), port the change across by hand — the two projects don't share a file on disk, so there's no automatic sync.
 
-The sidebar brand uses the Testomatic logo (`static/img/testomatic-logo-wide-transparent.png`) rather than Register's SuperHouse logo, since this app *is* the Testomatic-branded product surface, unlike Register which links out to Testomatic as a related project.
+The sidebar matches Register's structure exactly: the SuperHouse logo (`static/img/superhouse.png`, linking to superhouse.tv) at the top in `.sidebar-brand`, and a `.sidebar-footer` at the bottom (below the nav/logout, pushed down by `.sidebar-nav`'s `flex: 1`) with the Testomatic logo (`static/img/testomatic-logo-wide-transparent.png`, linking to testomatic.io) above a centered, muted version string.
 
 ## Data Model / Auth
 
@@ -60,4 +62,4 @@ Environment variables load from `.env` (see `.env.template`). Notable ones:
 
 ## Status
 
-This is an early skeleton (Django admin + a themed shell + a placeholder dashboard). No Testomatic-specific features (test execution, firmware programming, Register sync) exist yet — those will be designed and added once a GitHub repo is set up for this project.
+This is an early skeleton (Django admin + a themed shell + a placeholder dashboard). No Testomatic-specific features (test execution, firmware programming, Register sync) exist yet — those are still to be designed and added. The GitHub repo is [github.com/SuperHouse/testomatic-ui](https://github.com/SuperHouse/testomatic-ui).

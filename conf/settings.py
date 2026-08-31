@@ -26,8 +26,7 @@ DEBUG = os.environ.get("DEBUG", "True") in (True, "True", "true", "1")
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get("ALLOWED_HOSTS", "").split(",") if h.strip()]
 
 # The base URL of the Register instance this device talks to, e.g.
-# "https://register.example.com". No trailing slash. Used once API-consuming
-# features start being added.
+# "https://register.example.com". No trailing slash. Used by core/register_client.py.
 REGISTER_API_URL = os.environ.get("REGISTER_API_URL", "")
 REGISTER_API_KEY = os.environ.get("REGISTER_API_KEY", "")
 
@@ -39,8 +38,8 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
-    'django.contrib.staticfiles',
     'core',
+    'django.contrib.staticfiles',
 ]
 
 MIDDLEWARE = [

@@ -1,8 +1,8 @@
 {% load static %}
 <aside class="sidebar sidebar-fixed sidebar-lg-show" id="sidebar">
     <div class="sidebar-brand d-none d-md-flex">
-        <a class="sidebar-brand-full" href="{% url 'home' %}">
-            <img src="{% static 'img/testomatic-logo-wide-transparent.png' %}" alt="Testomatic" style="max-height: 90px; max-width: 200px; padding: 10px 0;">
+        <a class="sidebar-brand-full" href="https://www.superhouse.tv/" target="_blank" rel="noopener noreferrer">
+            <img src="{% static 'img/superhouse.png' %}" alt="SuperHouse" style="max-height: 120px; max-width: 200px; padding: 10px 0;">
         </a>
     </div>
     {% if user.is_authenticated %}
@@ -31,9 +31,15 @@
                 Logout
             </button>
         </form>
+        <div class="sidebar-footer border-top">
+            <div class="text-center py-3">
+                <a href="https://www.testomatic.io/" target="_blank" rel="noopener noreferrer">
+                    <img src="{% static 'img/testomatic-logo-wide-transparent.png' %}" alt="Testomatic.io" style="max-width: 100%; height: auto; padding: 0 10px;">
+                </a>
+                <div style="font-size: 0.7rem; opacity: 0.5; margin-top: 4px;">
+                    <a href="https://github.com/SuperHouse/testomatic-ui" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: none;">v{{ VERSION }}</a>
+                </div>
+            </div>
+        </div>
     {% endif %}
-
-    <div id="sidebar-version" class="sidebar-version mt-auto px-3 pb-3 text-muted small">
-        {{ VERSION }}
-    </div>
 </aside>
