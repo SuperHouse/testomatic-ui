@@ -14,9 +14,39 @@
 {% endblock h1 %}
 
 {% block content %}
-    <div class="mb-3">
+    <div class="mb-3 d-flex gap-2">
         <a href="{% url 'test_suites:list' %}" class="btn btn-secondary">Back to Test Suites</a>
+        <form method="post" action="{% url 'test_suites:run' test_suite.pk %}" class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-primary">
+                <i class="cil-media-play me-1"></i>
+                Run Test Suite
+            </button>
+        </form>
     </div>
+
+    {% if run_error %}
+        <div class="card mb-3 border-danger">
+            <div class="card-body">
+                <h5 class="card-title text-danger">Test Run Failed</h5>
+                <p class="mb-0">{{ run_error }}</p>
+            </div>
+        </div>
+    {% elif run_output %}
+        <div class="card mb-3 {% if run_passed %}border-success{% else %}border-danger{% endif %}">
+            <div class="card-body">
+                <h5 class="card-title d-flex align-items-center gap-2">
+                    Test Run Result
+                    {% if run_passed %}
+                        <span class="badge bg-success">PASS</span>
+                    {% else %}
+                        <span class="badge bg-danger">FAIL</span>
+                    {% endif %}
+                </h5>
+                <pre class="mb-0">{{ run_output }}</pre>
+            </div>
+        </div>
+    {% endif %}
 
     {% if notes %}
         <div class="card mb-3">

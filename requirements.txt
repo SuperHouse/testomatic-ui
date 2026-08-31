@@ -1,3 +1,9 @@
 Django>=5.2,<6
 python-dotenv==1.2.2
 requests==2.33.0
+
+# Not yet on PyPI -- installed from the sibling checkout. Core testomatic-runner only (Test Suite
+# parsing/registry/TestRunner); its "pi" extra (which pulls in testomatic-io, needs real Raspberry
+# Pi hardware to import) is deliberately not requested here -- see testomatic-runner's own
+# CLAUDE.md and pyproject.toml [project.optional-dependencies] for why it's kept optional.
+-e ../testomatic-runner

@@ -12,6 +12,7 @@ from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from . import views
 from .models import Design, TestSuite
 from .sync import fetch_design_thumbnail, fetch_test_suite_package, sync_test_suites
 
@@ -366,6 +367,78 @@ class TestSuiteDetailViewTest(MediaIsolatedTestCase):
 
         self.assertContains(response, '<span class="badge bg-danger">Old Version</span>')
         self.assertNotContains(response, 'Current Version')
+
+
+class TestSuiteRunViewTest(MediaIsolatedTestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='testuser', password='secret123')
+        self.client.force_login(self.user)
+        self.design = Design.objects.create(register_id=133, sku='ABC123', name='Widget', hw_version='1.0')
+        self.test_suite = TestSuite.objects.create(
+            register_id=6, design=self.design, version=2, status='SAVED', register_created_dt='2026-08-26T10:02:56Z'
+        )
+        self.test_suite.package_file.save('6.zip', ContentFile(package_zip_bytes()), save=True)
+
+    def test_get_not_allowed(self):
+        response = self.client.get(reverse('test_suites:run', args=[self.test_suite.pk]))
+        self.assertEqual(response.status_code, 405)
+
+    def test_404_when_not_yet_fetched(self):
+        unfetched = TestSuite.objects.create(
+            register_id=7, design=self.design, version=1, status='SAVED', register_created_dt='2026-08-26T00:00:00Z'
+        )
+        response = self.client.post(reverse('test_suites:run', args=[unfetched.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    @patch('test_suites.views._run_test_suite')
+    def test_shows_pass_result(self, mock_run):
+        mock_run.return_value = ('[PASS] Buzz once: ok\n\nResult: PASS', True, None)
+
+        response = self.client.post(reverse('test_suites:run', args=[self.test_suite.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '<span class="badge bg-success">PASS</span>')
+        self.assertContains(response, 'Result: PASS')
+
+    @patch('test_suites.views._run_test_suite')
+    def test_shows_fail_result(self, mock_run):
+        mock_run.return_value = ('[FAIL] Buzz once: nope\n\nResult: FAIL', False, None)
+
+        response = self.client.post(reverse('test_suites:run', args=[self.test_suite.pk]))
+
+        self.assertContains(response, '<span class="badge bg-danger">FAIL</span>')
+
+    @patch('test_suites.views._run_test_suite')
+    def test_shows_error_message_instead_of_result(self, mock_run):
+        mock_run.return_value = (None, None, 'Test Runner hardware support is not available on this device: boom')
+
+        response = self.client.post(reverse('test_suites:run', args=[self.test_suite.pk]))
+
+        self.assertContains(response, 'Test Run Failed')
+        self.assertContains(response, 'not available on this device')
+        self.assertNotContains(response, 'Test Run Result')
+
+    @patch('test_suites.views._run_test_suite')
+    def test_still_shows_steps_and_checks_alongside_result(self, mock_run):
+        mock_run.return_value = ('Result: PASS', True, None)
+        content = package_zip_bytes(
+            test_steps=[{'order': 1, 'step_type': 'BEEP', 'name': 'Buzz once', 'abort_on_fail': False, 'config': {'duration_ms': 500}}],
+        )
+        self.test_suite.package_file.save('6.zip', ContentFile(content), save=True)
+
+        response = self.client.post(reverse('test_suites:run', args=[self.test_suite.pk]))
+
+        self.assertContains(response, 'Buzz once')
+
+    def test_run_test_suite_reports_missing_hardware_library(self):
+        # testomatic_io genuinely isn't installed in this dev/test environment - it's Pi/Linux-only,
+        # pulled in only via testomatic-runner's "pi" extra - so this exercises the real ImportError
+        # path rather than mocking it away.
+        output, passed, error = views._run_test_suite(self.test_suite)
+
+        self.assertIsNone(output)
+        self.assertIsNone(passed)
+        self.assertIn('not available on this device', error)
 
 
 class TestSuiteIsCurrentVersionTest(MediaIsolatedTestCase):

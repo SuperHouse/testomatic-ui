@@ -11,4 +11,5 @@ urlpatterns = [
     path('update/', views.test_suite_update, name='update'),
     path('<int:suite_id>/fetch/', views.test_suite_fetch, name='fetch'),
     path('<int:pk>/', views.test_suite_detail, name='detail'),
+    path('<int:pk>/run/', views.test_suite_run, name='run'),
 ]
