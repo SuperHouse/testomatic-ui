@@ -67,6 +67,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.project_version',
+                'core.context_processors.operator_avatar',
             ],
         },
     },
@@ -107,6 +108,14 @@ AUTH_PASSWORD_VALIDATORS = [
 LOGIN_URL = '/accounts/login/'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
+
+# RegisterAuthBackend first, so operator login is checked against Register (issue #4) with a
+# local-password fallback if Register is unreachable; ModelBackend keeps local-only accounts
+# (e.g. a break-glass admin created via createsuperuser) working independently of Register.
+AUTHENTICATION_BACKENDS = [
+    'core.auth_backends.RegisterAuthBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/

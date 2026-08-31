@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 SuperHouse Automation Pty Ltd <info@superhouse.tv>
 """Client for the Register API endpoints this project consumes (Register's API.md): the Test
-Suite Package endpoints (staff-only on Register's side), the Design list endpoint, and the
-Design Asset endpoints. Requires REGISTER_API_URL / REGISTER_API_KEY to be configured (see
-.env.template)."""
+Suite Package endpoints (staff-only on Register's side), the Design list endpoint, the Design
+Asset endpoints, and the operator-credential-verification endpoint. Requires REGISTER_API_URL /
+REGISTER_API_KEY to be configured (see .env.template)."""
 import requests
 from django.conf import settings
 
@@ -25,6 +25,18 @@ def _require_config():
         raise RegisterAPIError('REGISTER_API_URL and REGISTER_API_KEY must both be configured')
 
 
+def _handle_response(response):
+    if response.status_code != 200:
+        message = response.text
+        try:
+            message = response.json().get('message', message)
+        except ValueError:
+            pass
+        raise RegisterAPIError(message, status_code=response.status_code)
+
+    return response
+
+
 def _get(path, params=None):
     _require_config()
 
@@ -36,15 +48,21 @@ def _get(path, params=None):
     except requests.RequestException as exc:
         raise RegisterAPIError(f'Could not reach Register: {exc}') from exc
 
-    if response.status_code != 200:
-        message = response.text
-        try:
-            message = response.json().get('message', message)
-        except ValueError:
-            pass
-        raise RegisterAPIError(message, status_code=response.status_code)
+    return _handle_response(response)
 
-    return response
+
+def _post(path, json=None):
+    _require_config()
+
+    url = f'{settings.REGISTER_API_URL}/api/v1/{path}'
+    headers = {'X-API-Key': settings.REGISTER_API_KEY}
+
+    try:
+        response = requests.post(url, headers=headers, json=json, timeout=REQUEST_TIMEOUT_SECONDS)
+    except requests.RequestException as exc:
+        raise RegisterAPIError(f'Could not reach Register: {exc}') from exc
+
+    return _handle_response(response)
 
 
 def list_test_suites(design_id=None):
@@ -87,3 +105,17 @@ def fetch_design_asset(asset_id):
     file extension when saving."""
     response = _get(f'design-assets/{asset_id}/download/')
     return response.content, response.headers.get('Content-Type')
+
+
+def verify_operator(email, password):
+    """Checks an operator's Register credentials via POST /api/v1/auth/verify/, authenticated
+    as this device (X-API-Key) rather than as the operator. Returns the operator's profile dict
+    (id, email, full_name, avatar_type, is_staff) on success.
+
+    Raises RegisterAPIError on any failure - callers care about the distinction between
+    RegisterAPIError.status_code being None (Register couldn't be reached at all: a network
+    failure, DNS failure, timeout, or unconfigured settings) versus a real HTTP status (401
+    invalid credentials, 403 not staff - Register was reached and explicitly rejected these
+    credentials). See core.auth_backends.RegisterAuthBackend, which only falls back to a
+    locally cached credential in the unreachable case, never on an explicit rejection."""
+    return _post('auth/verify/', json={'email': email, 'password': password}).json()

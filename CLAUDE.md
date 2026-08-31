@@ -49,7 +49,20 @@ The sidebar matches Register's structure exactly: the SuperHouse logo (`static/i
 
 ## Data Model / Auth
 
-`core` has no custom models. `test_suites` has `Design` and `TestSuite` — see Test Suites below. Auth currently uses Django's standard `django.contrib.auth` `User` model and session-based login (`django.contrib.auth.urls`), which is separate from Register's user accounts. Whether/how a Testomatic device's local login should relate to a Register user (e.g. via the API key a device holds) is an open question for when real features are added.
+`core` has `OperatorProfile` (see Operator Login below). `test_suites` has `Design` and `TestSuite` — see Test Suites below. Login is Django's standard session-based `django.contrib.auth.urls`, but authentication itself is handled by `core.auth_backends.RegisterAuthBackend` (see below), not a plain local password check.
+
+## Operator Login
+
+Operators log in with their **Register email and password**, not a locally-created account (issue #4) — though a `createsuperuser` account still works too (see below). Backed by a new Register endpoint, `POST /api/v1/auth/verify/` — see Register's own `CLAUDE.md`/`API.md` for that endpoint's contract.
+
+- `AUTHENTICATION_BACKENDS` (`conf/settings.py`) lists `core.auth_backends.RegisterAuthBackend` before Django's `ModelBackend`. Django tries backends in order and uses the first that returns a user.
+- `RegisterAuthBackend.authenticate()`: calls `core.register_client.verify_operator(email, password)` — a `POST` to Register, authenticated as *this device* (`X-API-Key`), not as the operator. Three outcomes:
+  1. **Register confirms the credentials** — `get_or_create`s a local `auth.User` (`username` = the email), sets `is_staff = True` (Register already refused a non-staff user with a `403`, so this is safe), sets `first_name` to the Register `full_name` (so the existing `{{ user.get_full_name }}` in `partial-topnav.html` picks it up with no template change), and — the key part — calls `user.set_password(password)` to refresh the **locally cached, salted hash** of the current password. Also `update_or_create`s an `OperatorProfile` (`register_user_id`, `full_name`, `avatar_type`) linking the local account back to Register's own user PK, for a future test-report feature to attribute reports by.
+  2. **Register explicitly rejects the credentials** (`401` wrong password, `403` not staff) — returns `None` immediately. A stale local cache never overrides an explicit rejection.
+  3. **Register is unreachable** (`RegisterAPIError.status_code is None` — a network/timeout failure, distinct from an HTTP error response) — falls back to `user.check_password()` against whatever hash was cached the last time this operator successfully logged in through path 1. This is deliberate: Testomatic devices are sometimes used somewhere with intermittent connectivity, and login needs to keep working there. The known tradeoff: if an operator's Register access is revoked while a device is offline, the cached credentials still work on that device until it reconnects and a login re-syncs them.
+- `ModelBackend` stays in the list too, so a local `createsuperuser` account (see README) keeps working independently of Register — useful for first-time device bring-up before `REGISTER_API_URL`/`REGISTER_API_KEY` are configured, and as a break-glass admin path.
+- The login template (`core/templates/registration/login.html`) labels the identifier field "Email" rather than Django's default "Username" — the field's still POSTed as `username` (Django's `AuthenticationForm` isn't renamed), it's just relabelled.
+- `core/avatar.py` (`get_initials`/`get_avatar_color`/`get_gravatar_url`) is a port of Register's `device/templatetags/avatar_tags.py`, so the topnav looks the same: a Gravatar image if the cached `OperatorProfile.avatar_type` is `gravatar`, otherwise an email-derived colour with initials on top. `core/context_processors.py:operator_avatar` (registered in `TEMPLATES`) supplies `operator_display_name`/`operator_avatar_url`/`operator_initials`/`operator_avatar_color` to every template — `partial-topnav.html` renders **name then avatar**, matching Register's own order (deliberately the opposite of what you'd naively pick). Falls back to Django's own `get_full_name()`/`get_username()` for a local-only account with no `OperatorProfile`.
 
 ## Register API Client
 
@@ -58,8 +71,10 @@ The sidebar matches Register's structure exactly: the SuperHouse logo (`static/i
 - `list_designs(client_pk=None)` — `GET /api/v1/designs/`. A staff key sees every design.
 - `list_test_suites(design_id=None)` — `GET /api/v1/test-suites/`. **Staff-only** on Register's side — a non-staff key gets a `403`. Only ever returns finalised (`SAVED`) suites, never `DRAFT`.
 - `fetch_test_suite(suite_id)` — `GET /api/v1/test-suites/{id}/download/`, returns the raw ZIP bytes. Also staff-only.
+- `list_design_assets(design_id=None, asset_type=None)` / `fetch_design_asset(asset_id)` — `GET /api/v1/design-assets/` / `.../download/` (issue #117). The latter returns `(bytes, content_type)`, not just bytes — a Design Asset isn't always the same file type.
+- `verify_operator(email, password)` — `POST /api/v1/auth/verify/` (issue #4), authenticated as the device, not the operator. See Operator Login below for how `RegisterAPIError.status_code` (`None` vs. a real HTTP status) drives the online/offline login split.
 
-Register also IP-allowlists API callers (`API_ALLOW_IPV4_SUBNET`) — a device's key needs both staff access and an allowlisted IP to reach the Test Suite endpoints.
+Register also IP-allowlists API callers (`API_ALLOW_IPV4_SUBNET`) — a device's key needs both staff access and an allowlisted IP to reach the Test Suite/Design Asset endpoints.
 
 ## Test Suites
 
@@ -87,4 +102,4 @@ Environment variables load from `.env` (see `.env.template`). Notable ones:
 
 ## Status
 
-Still early: a themed shell, the Register API client, the Test Suites list/fetch feature (issues #1 and #2), and Design thumbnails on that list (Register issue #117) exist. Test execution and firmware programming don't exist yet. The GitHub repo is [github.com/SuperHouse/testomatic-ui](https://github.com/SuperHouse/testomatic-ui).
+Still early: a themed shell, the Register API client, the Test Suites list/fetch/detail feature (issues #1, #2, #3), Design thumbnails on that list (Register issue #117), and Register-backed operator login with an offline fallback (issue #4) exist. Test execution and firmware programming don't exist yet. The GitHub repo is [github.com/SuperHouse/testomatic-ui](https://github.com/SuperHouse/testomatic-ui).

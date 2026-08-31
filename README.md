@@ -12,13 +12,17 @@ cp .env.template .env   # then edit .env
 python manage.py migrate
 ```
 
-### Create a user account
+### Logging in
+
+Normally, log in at `/accounts/login/` with a **Register email and password** — any staff user in the Register instance configured via `REGISTER_API_URL`/`REGISTER_API_KEY` (see Configuration below) can log in this way, no separate account needs creating here first. A local copy of the account is created/updated on each successful login (including a cached password hash, so login keeps working if Register becomes briefly unreachable).
+
+For local dev, or before `REGISTER_API_URL`/`REGISTER_API_KEY` are configured, a local-only account still works too:
 
 ```bash
 python manage.py createsuperuser
 ```
 
-Follow the prompts to create an account — same convention as Register. Log in with it at `/accounts/login/` to reach the dashboard; being a superuser also gives you access to `/admin/`. Any additional accounts can be created the same way, or via `/admin/` once one account exists.
+Follow the prompts to create an account — same convention as Register. Log in with it at `/accounts/login/`; being a superuser also gives you access to `/admin/`.
 
 ## Running
 

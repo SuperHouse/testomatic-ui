@@ -7,9 +7,15 @@
                 </button>
                 <ul class="header-nav ms-auto d-flex align-items-center mb-0">
                     <li class="nav-item">
-                        <span class="nav-link py-0">
-                            <i class="icon cil-user me-2"></i>
-                            {% if user.get_full_name %}{{ user.get_full_name }}{% else %}{{ user.get_username }}{% endif %}
+                        <span class="nav-link py-0 d-flex align-items-center">
+                            <span class="me-2">{{ operator_display_name }}</span>
+                            {% if operator_avatar_url %}
+                                <img src="{{ operator_avatar_url }}" class="rounded-circle" alt="{{ operator_display_name }}" style="width: 40px; height: 40px; object-fit: cover;">
+                            {% else %}
+                                <div class="rounded-circle d-inline-flex align-items-center justify-content-center text-white fw-bold" style="width: 40px; height: 40px; background-color: {{ operator_avatar_color }}; font-size: 16px;">
+                                    {{ operator_initials }}
+                                </div>
+                            {% endif %}
                         </span>
                     </li>
                 </ul>
