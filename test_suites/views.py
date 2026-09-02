@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 SuperHouse Automation Pty Ltd <info@superhouse.tv>
 from django.contrib.auth.decorators import login_required
+from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
@@ -12,8 +13,19 @@ from .test_suite_package import parse_test_suite_package
 
 @login_required
 def test_suite_list(request):
+    q = request.GET.get('q', '').strip()
     designs = Design.objects.filter(test_suites__isnull=False).distinct().prefetch_related('test_suites')
-    return render(request, 'test_suites/list.html', {'designs': designs})
+    if q:
+        designs = designs.filter(
+            Q(sku__icontains=q) | Q(name__icontains=q) | Q(hw_version__icontains=q) | Q(client_name__icontains=q)
+        )
+    return render(request, 'test_suites/list.html', {'designs': designs, 'q': q})
+
+
+@login_required
+def test_suite_versions(request, design_id):
+    design = get_object_or_404(Design, pk=design_id)
+    return render(request, 'test_suites/versions.html', {'design': design, 'test_suites': design.test_suites.all()})
 
 
 @login_required

@@ -16,6 +16,12 @@
 {% block content %}
     <div class="mb-3 d-flex gap-2">
         <a href="{% url 'test_suites:list' %}" class="btn btn-secondary">Back to Test Suites</a>
+        {% if test_suite.design.test_suites.count > 1 %}
+            <a href="{% url 'test_suites:versions' test_suite.design_id %}" class="btn btn-outline-secondary">
+                <i class="cil-history me-1"></i>
+                Version History
+            </a>
+        {% endif %}
         <form method="post" action="{% url 'test_suites:run' test_suite.pk %}" class="d-inline">
             {% csrf_token %}
             <button type="submit" class="btn btn-primary">

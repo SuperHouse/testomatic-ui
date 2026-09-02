@@ -9,6 +9,7 @@ app_name = 'test_suites'
 urlpatterns = [
     path('', views.test_suite_list, name='list'),
     path('update/', views.test_suite_update, name='update'),
+    path('<int:design_id>/versions/', views.test_suite_versions, name='versions'),
     path('<int:suite_id>/fetch/', views.test_suite_fetch, name='fetch'),
     path('<int:pk>/', views.test_suite_detail, name='detail'),
     path('<int:pk>/run/', views.test_suite_run, name='run'),
