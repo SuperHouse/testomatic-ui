@@ -22,8 +22,14 @@
             </li>
             {% if user.is_staff %}
                 <li class="nav-item">
-                    <a class="nav-link" href="{% url 'admin:index' %}">
+                    <a class="nav-link {% if url_name == 'device_settings_edit' %}active{% endif %}" href="{% url 'device_settings_edit' %}">
                         <i class="nav-icon cil-settings"></i>
+                        Device Settings
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'admin:index' %}">
+                        <i class="nav-icon cil-cog"></i>
                         Admin
                     </a>
                 </li>

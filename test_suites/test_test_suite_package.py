@@ -55,6 +55,43 @@ class StepDisplayConfigSummaryTest(SimpleTestCase):
         self.assertEqual(step.get_color(), '#6c757d')
         self.assertEqual(step.get_step_type_display(), 'Delay')
 
+    def test_upload_firmware_avrdude(self):
+        step = self._step(
+            'UPLOAD_FIRMWARE_AVRDUDE',
+            {'port': '/dev/ttyUSB0', 'mcu': 'atmega328p', 'firmware_file': 'main.hex'},
+        )
+        self.assertEqual(step.get_config_summary(), 'atmega328p via /dev/ttyUSB0 — main.hex')
+        self.assertEqual(step.get_color(), '#0d6efd')
+        self.assertEqual(step.get_step_type_display(), 'Upload Firmware (avrdude)')
+
+    def test_upload_firmware_esptool_counts_images(self):
+        step = self._step(
+            'UPLOAD_FIRMWARE_ESPTOOL',
+            {
+                'port': '/dev/ttyUSB0', 'chip': 'esp32',
+                'images': [{'address': '0x1000', 'file': 'boot.bin'}, {'address': '0x10000', 'file': 'app.bin'}],
+            },
+        )
+        self.assertEqual(step.get_config_summary(), 'esp32 via /dev/ttyUSB0 — 2 image(s)')
+        self.assertEqual(step.get_color(), '#0d6efd')
+
+    def test_upload_firmware_openocd(self):
+        step = self._step(
+            'UPLOAD_FIRMWARE_OPENOCD',
+            {
+                'interface_config': 'interface/stlink.cfg', 'target_config': 'target/stm32f4x.cfg',
+                'firmware_file': 'app.bin',
+            },
+        )
+        self.assertEqual(step.get_config_summary(), 'target/stm32f4x.cfg via interface/stlink.cfg — app.bin')
+
+    def test_upload_firmware_stm32cubeprogrammer(self):
+        step = self._step(
+            'UPLOAD_FIRMWARE_STM32CUBEPROGRAMMER',
+            {'connection_interface': 'SWD', 'firmware_file': 'app.bin'},
+        )
+        self.assertEqual(step.get_config_summary(), 'SWD — app.bin')
+
     def test_beep_defaults_count_to_one(self):
         step = self._step('BEEP', {'duration_ms': 200})
         self.assertEqual(step.get_config_summary(), '1 × 200 ms')

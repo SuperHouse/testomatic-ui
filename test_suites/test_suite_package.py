@@ -17,7 +17,10 @@ DEFAULT_COLOR = '#6c757d'
 
 STEP_TYPE_LABELS = {
     'DELAY': 'Delay',
-    'UPLOAD_FIRMWARE': 'Upload Firmware',
+    'UPLOAD_FIRMWARE_AVRDUDE': 'Upload Firmware (avrdude)',
+    'UPLOAD_FIRMWARE_ESPTOOL': 'Upload Firmware (esptool.py)',
+    'UPLOAD_FIRMWARE_OPENOCD': 'Upload Firmware (OpenOCD)',
+    'UPLOAD_FIRMWARE_STM32CUBEPROGRAMMER': 'Upload Firmware (STM32CubeProgrammer)',
     'BEEP': 'Beep',
     'READ_RAIL_VOLTAGE': 'Read Rail Voltage',
     'READ_RAIL_CURRENT': 'Read Rail Current',
@@ -31,9 +34,14 @@ STEP_TYPE_LABELS = {
     'OPERATOR_INTERVENTION': 'Operator Intervention',
 }
 
+# The 4 UPLOAD_FIRMWARE_* types share one colour, matching Register's own STEP_TYPE_COLORS -
+# they're alternative methods for the same part of the workflow, not unrelated concerns.
 STEP_TYPE_COLORS = {
     'DELAY': '#6c757d',
-    'UPLOAD_FIRMWARE': '#0d6efd',
+    'UPLOAD_FIRMWARE_AVRDUDE': '#0d6efd',
+    'UPLOAD_FIRMWARE_ESPTOOL': '#0d6efd',
+    'UPLOAD_FIRMWARE_OPENOCD': '#0d6efd',
+    'UPLOAD_FIRMWARE_STM32CUBEPROGRAMMER': '#0d6efd',
     'BEEP': '#fd7e14',
     'READ_RAIL_VOLTAGE': '#198754',
     'READ_RAIL_CURRENT': '#20c997',
@@ -82,8 +90,14 @@ def _config_summary(step_type, config):
     c = config
     if step_type == 'DELAY':
         return f"{c.get('delay_ms', '?')} ms"
-    if step_type == 'UPLOAD_FIRMWARE':
-        return f"{c.get('upload_tool', '?')} via {c.get('port', '?')} — {c.get('firmware_file', '?')}"
+    if step_type == 'UPLOAD_FIRMWARE_AVRDUDE':
+        return f"{c.get('mcu', '?')} via {c.get('port', '?')} — {c.get('firmware_file', '?')}"
+    if step_type == 'UPLOAD_FIRMWARE_ESPTOOL':
+        return f"{c.get('chip', '?')} via {c.get('port', '?')} — {len(c.get('images', []))} image(s)"
+    if step_type == 'UPLOAD_FIRMWARE_OPENOCD':
+        return f"{c.get('target_config', '?')} via {c.get('interface_config', '?')} — {c.get('firmware_file', '?')}"
+    if step_type == 'UPLOAD_FIRMWARE_STM32CUBEPROGRAMMER':
+        return f"{c.get('connection_interface', '?')} — {c.get('firmware_file', '?')}"
     if step_type == 'BEEP':
         return f"{c.get('count', 1)} × {c.get('duration_ms', '?')} ms"
     if step_type == 'READ_RAIL_VOLTAGE':

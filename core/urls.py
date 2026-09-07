@@ -6,4 +6,5 @@ from core import views
 
 urlpatterns = [
     path('', views.home, name='home'),
+    path('settings/', views.device_settings_edit, name='device_settings_edit'),
 ]

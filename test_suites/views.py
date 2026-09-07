@@ -6,6 +6,8 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
+from core.models import DeviceSettings
+
 from .models import Design, TestSuite
 from .sync import fetch_test_suite_package, sync_test_suites
 from .test_suite_package import parse_test_suite_package
@@ -83,6 +85,10 @@ def _run_test_suite(test_suite):
     if testomatic_io isn't available on this device (only installed via testomatic-runner's "pi"
     extra, on a real Testomatic Pi - see testomatic-runner's CLAUDE.md) or the suite couldn't be
     parsed/executed. Not stored anywhere yet - the operator sees it once, for this request only.
+
+    Passes this device's own DeviceSettings (core.models) firmware-upload tool paths through to
+    TestRunner, so an UPLOAD_FIRMWARE_* step's executor (testomatic-runner's steps/firmware.py)
+    uses this device's configured tool locations instead of assuming each is on $PATH.
     """
     try:
         from testomatic.runner import TestRunner, format_report
@@ -91,13 +97,21 @@ def _run_test_suite(test_suite):
     except ImportError as exc:
         return None, None, f'Test Runner hardware support is not available on this device: {exc}'
 
+    device_settings = DeviceSettings.get_solo()
+
     try:
         suite = load_suite(test_suite.package_file.path)
         chassis = Chassis()
         chassis.init()
         test_module = TestModule()
         test_module.init()
-        report = TestRunner(chassis, test_module).run(suite)
+        report = TestRunner(
+            chassis, test_module,
+            avrdude_path=device_settings.avrdude_path or None,
+            esptool_path=device_settings.esptool_path or None,
+            openocd_path=device_settings.openocd_path or None,
+            stm32cubeprogrammer_path=device_settings.stm32cubeprogrammer_path or None,
+        ).run(suite)
     except Exception as exc:  # a parse/hardware-init failure must not crash the whole page
         return None, None, f'Test run failed: {exc}'
 
