@@ -8,10 +8,9 @@ from .models import DeviceSettings
 class DeviceSettingsForm(forms.ModelForm):
     class Meta:
         model = DeviceSettings
-        fields = ['avrdude_path', 'esptool_path', 'openocd_path', 'stm32cubeprogrammer_path']
+        fields = ['avrdude_path', 'openocd_path', 'stm32cubeprogrammer_path']
         widgets = {
             'avrdude_path': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'avrdude'}),
-            'esptool_path': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'esptool.py'}),
             'openocd_path': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'openocd'}),
             'stm32cubeprogrammer_path': forms.TextInput(
                 attrs={'class': 'form-control', 'placeholder': 'STM32_Programmer_CLI'}

@@ -108,7 +108,6 @@ def _run_test_suite(test_suite):
         report = TestRunner(
             chassis, test_module,
             avrdude_path=device_settings.avrdude_path or None,
-            esptool_path=device_settings.esptool_path or None,
             openocd_path=device_settings.openocd_path or None,
             stm32cubeprogrammer_path=device_settings.stm32cubeprogrammer_path or None,
         ).run(suite)

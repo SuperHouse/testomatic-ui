@@ -26,12 +26,16 @@ class DeviceSettings(models.Model):
     this physical Testomatic device's own configuration - as opposed to a Test Suite's own
     config, which comes from Register and is the same regardless of which device runs it.
 
-    Currently just the 4 firmware-upload tool executable paths: testomatic-runner's
-    ExecutionContext (see testomatic.steps.base.ExecutionContext in the sibling testomatic-runner
-    repo) defaults each UPLOAD_FIRMWARE_* executor's tool to the bare name on $PATH unless
-    overridden - these fields are this device's override, blank meaning "use the default on
-    $PATH". test_suites.views._run_test_suite() reads this record and passes the 4 paths through
-    to TestRunner(...).
+    Currently just the 3 firmware-upload tool executable paths for the tools with no PyPI
+    distribution: testomatic-runner's ExecutionContext (see testomatic.steps.base
+    .ExecutionContext in the sibling testomatic-runner repo) defaults each UPLOAD_FIRMWARE_*
+    executor's tool to the bare name on $PATH unless overridden - these fields are this device's
+    override, blank meaning "use the default on $PATH". test_suites.views._run_test_suite()
+    reads this record and passes the 3 paths through to TestRunner(...). There is deliberately
+    no esptool_path field: esptool is a pure-Python PyPI package, so testomatic-runner's "pi"
+    extra installs it (and its esptool.py console script) directly onto this device's $PATH,
+    unlike avrdude/openocd/STM32CubeProgrammer, which have no PyPI distribution and still need a
+    system-level install plus an optional path override here.
 
     Deliberately does NOT hold anything for the serial port / debug-probe fields
     (UPLOAD_FIRMWARE_AVRDUDE's port, UPLOAD_FIRMWARE_OPENOCD's adapter_serial, etc.) - those stay
@@ -42,10 +46,6 @@ class DeviceSettings(models.Model):
     avrdude_path = models.CharField(
         max_length=500, blank=True,
         help_text="Path to the avrdude executable. Leave blank to use 'avrdude' on $PATH.",
-    )
-    esptool_path = models.CharField(
-        max_length=500, blank=True,
-        help_text="Path to the esptool.py executable. Leave blank to use 'esptool.py' on $PATH.",
     )
     openocd_path = models.CharField(
         max_length=500, blank=True,
