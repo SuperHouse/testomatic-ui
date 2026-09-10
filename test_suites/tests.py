@@ -12,6 +12,8 @@ from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from core.models import DeviceSettings
+
 from . import views
 from .models import Design, TestSuite
 from .sync import fetch_design_thumbnail, fetch_test_suite_package, sync_test_suites
@@ -387,14 +389,23 @@ class TestSuiteRunViewTest(MediaIsolatedTestCase):
         unfetched = TestSuite.objects.create(
             register_id=7, design=self.design, version=1, status='SAVED', register_created_dt='2026-08-26T00:00:00Z'
         )
-        response = self.client.post(reverse('test_suites:run', args=[unfetched.pk]))
+        response = self.client.post(reverse('test_suites:run', args=[unfetched.pk]), {'serial_number': '999'})
         self.assertEqual(response.status_code, 404)
+
+    def test_run_requires_serial_number(self):
+        response = self.client.post(reverse('test_suites:run', args=[self.test_suite.pk]), {'serial_number': ''})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Scan or enter a serial number')
+        self.assertNotContains(response, 'Test Run Result')
 
     @patch('test_suites.views._run_test_suite')
     def test_shows_pass_result(self, mock_run):
         mock_run.return_value = ('[PASS] Buzz once: ok\n\nResult: PASS', True, None)
 
-        response = self.client.post(reverse('test_suites:run', args=[self.test_suite.pk]))
+        response = self.client.post(
+            reverse('test_suites:run', args=[self.test_suite.pk]), {'serial_number': '999'}
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, '<span class="badge bg-success">PASS</span>')
@@ -404,7 +415,9 @@ class TestSuiteRunViewTest(MediaIsolatedTestCase):
     def test_shows_fail_result(self, mock_run):
         mock_run.return_value = ('[FAIL] Buzz once: nope\n\nResult: FAIL', False, None)
 
-        response = self.client.post(reverse('test_suites:run', args=[self.test_suite.pk]))
+        response = self.client.post(
+            reverse('test_suites:run', args=[self.test_suite.pk]), {'serial_number': '999'}
+        )
 
         self.assertContains(response, '<span class="badge bg-danger">FAIL</span>')
 
@@ -412,7 +425,9 @@ class TestSuiteRunViewTest(MediaIsolatedTestCase):
     def test_shows_error_message_instead_of_result(self, mock_run):
         mock_run.return_value = (None, None, 'Test Runner hardware support is not available on this device: boom')
 
-        response = self.client.post(reverse('test_suites:run', args=[self.test_suite.pk]))
+        response = self.client.post(
+            reverse('test_suites:run', args=[self.test_suite.pk]), {'serial_number': '999'}
+        )
 
         self.assertContains(response, 'Test Run Failed')
         self.assertContains(response, 'not available on this device')
@@ -426,9 +441,36 @@ class TestSuiteRunViewTest(MediaIsolatedTestCase):
         )
         self.test_suite.package_file.save('6.zip', ContentFile(content), save=True)
 
-        response = self.client.post(reverse('test_suites:run', args=[self.test_suite.pk]))
+        response = self.client.post(
+            reverse('test_suites:run', args=[self.test_suite.pk]), {'serial_number': '999'}
+        )
 
         self.assertContains(response, 'Buzz once')
+
+    @patch('test_suites.views._run_test_suite')
+    def test_shows_bare_serial_number_from_barcode_scan(self, mock_run):
+        mock_run.return_value = ('Result: PASS', True, None)
+
+        response = self.client.post(
+            reverse('test_suites:run', args=[self.test_suite.pk]), {'serial_number': '12345'}
+        )
+
+        self.assertContains(response, 'Serial 12345')
+
+    @patch('test_suites.views._run_test_suite')
+    def test_strips_configured_url_stem_from_qr_code_scan(self, mock_run):
+        mock_run.return_value = ('Result: PASS', True, None)
+        DeviceSettings.objects.update_or_create(
+            pk=1, defaults={'device_details_url_stem': 'https://d.superlab.au/'}
+        )
+
+        response = self.client.post(
+            reverse('test_suites:run', args=[self.test_suite.pk]),
+            {'serial_number': 'https://d.superlab.au/12345'},
+        )
+
+        self.assertContains(response, 'Serial 12345')
+        self.assertNotContains(response, 'd.superlab.au')
 
     def test_run_test_suite_reports_missing_hardware_library(self):
         # testomatic_io genuinely isn't installed in this dev/test environment - it's Pi/Linux-only,

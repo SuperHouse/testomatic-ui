@@ -26,7 +26,7 @@ def device_settings_edit(request):
         form = DeviceSettingsForm(request.POST, instance=device_settings)
         if form.is_valid():
             form.save()
-            messages.success(request, 'Device settings saved.')
+            messages.success(request, 'Tester settings saved.')
             return redirect('device_settings_edit')
     else:
         form = DeviceSettingsForm(instance=device_settings)

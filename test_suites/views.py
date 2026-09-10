@@ -9,6 +9,7 @@ from django.views.decorators.http import require_POST
 from core.models import DeviceSettings
 
 from .models import Design, TestSuite
+from .serial_number import extract_serial_number
 from .sync import fetch_test_suite_package, sync_test_suites
 from .test_suite_package import parse_test_suite_package
 
@@ -62,6 +63,14 @@ def test_suite_run(request, pk):
         raise Http404('This Test Suite Package has not been downloaded yet.')
 
     context = _detail_context(test_suite)
+
+    raw_serial_number = request.POST.get('serial_number', '').strip()
+    if not raw_serial_number:
+        context['serial_number_error'] = 'Scan or enter a serial number before running the Test Suite.'
+        return render(request, 'test_suites/detail.html', context)
+
+    device_settings = DeviceSettings.get_solo()
+    context['serial_number'] = extract_serial_number(raw_serial_number, device_settings.device_details_url_stem)
     context['run_output'], context['run_passed'], context['run_error'] = _run_test_suite(test_suite)
     return render(request, 'test_suites/detail.html', context)
 

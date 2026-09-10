@@ -26,7 +26,7 @@ class DeviceSettings(models.Model):
     this physical Testomatic device's own configuration - as opposed to a Test Suite's own
     config, which comes from Register and is the same regardless of which device runs it.
 
-    Two unrelated groups of fields so far, shown as separate cards on /settings/ (see
+    Three unrelated groups of fields so far, shown as separate cards on /settings/ (see
     device_settings_edit.html):
 
     - The 3 firmware-upload tool executable paths for the tools with no PyPI distribution:
@@ -43,6 +43,15 @@ class DeviceSettings(models.Model):
       'Printer_POS-80', for a `lp -d <printer_name> ...` call once the docket-printing feature
       itself (issue #6) exists. Not consumed by anything yet - this is just the config option,
       added ahead of the printing logic since #7 was split off #6 as a self-contained sub-issue.
+    - `device_details_url_stem` (issue #8): the base URL this device prepends to a DUT's serial
+      number to build the customer-facing "device details" link printed (as text and a QR code)
+      on the Test Docket, e.g. 'https://d.superlab.au/' + '12345'. Also used the other direction:
+      test_suites.serial_number.extract_serial_number() strips this same stem back off when the
+      serial-number field on the run page is populated by scanning the QR code rather than a
+      plain barcode (see that function's own docstring). Deliberately just one fallback value for
+      now, not per-customer/per-design - some customers want a vanity redirect URL instead, which
+      is real but explicitly deferred; whatever per-customer/per-design override scheme gets
+      built later would still need this field as its fallback, so it isn't wasted work.
 
     Deliberately does NOT hold anything for the serial port / debug-probe fields
     (UPLOAD_FIRMWARE_AVRDUDE's port, UPLOAD_FIRMWARE_OPENOCD's adapter_serial, etc.) - those stay
@@ -68,6 +77,11 @@ class DeviceSettings(models.Model):
         help_text="CUPS print queue name for the test docket printer, e.g. 'Printer_POS-80' "
                    "(used as 'lp -d <printer_name> ...'). Leave blank if no printer is "
                    "configured on this device.",
+    )
+    device_details_url_stem = models.CharField(
+        max_length=500, blank=True,
+        help_text="Base URL this device prepends to a DUT's serial number to build the device "
+                   "details link/QR code on the Test Docket, e.g. 'https://d.superlab.au/'.",
     )
 
     class Meta:

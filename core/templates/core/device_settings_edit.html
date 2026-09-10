@@ -1,11 +1,11 @@
 {% extends "core/base-with-sidebar.html" %}
 
 {% block title %}
-    Device Settings
+    Tester Settings
 {% endblock title %}
 
 {% block h1 %}
-    Device Settings
+    Tester Settings
 {% endblock h1 %}
 
 {% block content %}
@@ -42,6 +42,21 @@
                         </p>
 
                         {% include "core/_settings_field.html" with field=form.printer_name %}
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header">Device Details URL</div>
+                    <div class="card-body">
+                        <p class="text-body-secondary">
+                            The base URL this device prepends to a DUT's serial number to build
+                            the device details link and QR code printed on the Test Docket. Also
+                            used to recognise a QR code scanned into the Serial Number field on
+                            the run page, stripping this stem back off to recover the bare serial
+                            number.
+                        </p>
+
+                        {% include "core/_settings_field.html" with field=form.device_details_url_stem %}
                     </div>
                 </div>
 
