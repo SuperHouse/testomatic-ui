@@ -8,11 +8,14 @@ from .models import DeviceSettings
 class DeviceSettingsForm(forms.ModelForm):
     class Meta:
         model = DeviceSettings
-        fields = ['avrdude_path', 'openocd_path', 'stm32cubeprogrammer_path']
+        fields = ['avrdude_path', 'openocd_path', 'stm32cubeprogrammer_path', 'printer_name']
         widgets = {
             'avrdude_path': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'avrdude'}),
             'openocd_path': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'openocd'}),
             'stm32cubeprogrammer_path': forms.TextInput(
                 attrs={'class': 'form-control', 'placeholder': 'STM32_Programmer_CLI'}
+            ),
+            'printer_name': forms.TextInput(
+                attrs={'class': 'form-control', 'placeholder': 'Printer_POS-80'}
             ),
         }

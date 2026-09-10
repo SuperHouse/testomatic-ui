@@ -16,10 +16,10 @@ def home(request):
 
 @staff_member_required
 def device_settings_edit(request):
-    """Edits this device's own DeviceSettings singleton - the firmware-upload tool paths
-    test_suites.views._run_test_suite() reads when it constructs a TestRunner. See
-    DeviceSettings' own docstring for why this is device-side config, separate from a Test
-    Suite's own (Register-defined) config."""
+    """Edits this device's own DeviceSettings singleton: the firmware-upload tool paths
+    test_suites.views._run_test_suite() reads when it constructs a TestRunner, plus the test
+    docket printer name (issue #7). See DeviceSettings' own docstring for why this is
+    device-side config, separate from a Test Suite's own (Register-defined) config."""
     device_settings = DeviceSettings.get_solo()
 
     if request.method == 'POST':

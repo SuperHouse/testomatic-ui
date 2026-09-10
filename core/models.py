@@ -26,16 +26,23 @@ class DeviceSettings(models.Model):
     this physical Testomatic device's own configuration - as opposed to a Test Suite's own
     config, which comes from Register and is the same regardless of which device runs it.
 
-    Currently just the 3 firmware-upload tool executable paths for the tools with no PyPI
-    distribution: testomatic-runner's ExecutionContext (see testomatic.steps.base
-    .ExecutionContext in the sibling testomatic-runner repo) defaults each UPLOAD_FIRMWARE_*
-    executor's tool to the bare name on $PATH unless overridden - these fields are this device's
-    override, blank meaning "use the default on $PATH". test_suites.views._run_test_suite()
-    reads this record and passes the 3 paths through to TestRunner(...). There is deliberately
-    no esptool_path field: esptool is a pure-Python PyPI package, so testomatic-runner's "pi"
-    extra installs it (and its esptool.py console script) directly onto this device's $PATH,
-    unlike avrdude/openocd/STM32CubeProgrammer, which have no PyPI distribution and still need a
-    system-level install plus an optional path override here.
+    Two unrelated groups of fields so far, shown as separate cards on /settings/ (see
+    device_settings_edit.html):
+
+    - The 3 firmware-upload tool executable paths for the tools with no PyPI distribution:
+      testomatic-runner's ExecutionContext (see testomatic.steps.base.ExecutionContext in the
+      sibling testomatic-runner repo) defaults each UPLOAD_FIRMWARE_* executor's tool to the bare
+      name on $PATH unless overridden - these fields are this device's override, blank meaning
+      "use the default on $PATH". test_suites.views._run_test_suite() reads this record and
+      passes the 3 paths through to TestRunner(...). There is deliberately no esptool_path
+      field: esptool is a pure-Python PyPI package, so testomatic-runner's "pi" extra installs it
+      (and its esptool.py console script) directly onto this device's $PATH, unlike
+      avrdude/openocd/STM32CubeProgrammer, which have no PyPI distribution and still need a
+      system-level install plus an optional path override here.
+    - `printer_name` (issue #7): the CUPS print queue this device prints a test docket to, e.g.
+      'Printer_POS-80', for a `lp -d <printer_name> ...` call once the docket-printing feature
+      itself (issue #6) exists. Not consumed by anything yet - this is just the config option,
+      added ahead of the printing logic since #7 was split off #6 as a self-contained sub-issue.
 
     Deliberately does NOT hold anything for the serial port / debug-probe fields
     (UPLOAD_FIRMWARE_AVRDUDE's port, UPLOAD_FIRMWARE_OPENOCD's adapter_serial, etc.) - those stay
@@ -55,6 +62,12 @@ class DeviceSettings(models.Model):
         max_length=500, blank=True,
         help_text="Path to the STM32_Programmer_CLI executable. Leave blank to use "
                    "'STM32_Programmer_CLI' on $PATH.",
+    )
+    printer_name = models.CharField(
+        max_length=200, blank=True,
+        help_text="CUPS print queue name for the test docket printer, e.g. 'Printer_POS-80' "
+                   "(used as 'lp -d <printer_name> ...'). Leave blank if no printer is "
+                   "configured on this device.",
     )
 
     class Meta:
