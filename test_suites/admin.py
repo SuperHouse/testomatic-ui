@@ -2,7 +2,7 @@
 # Copyright (C) 2026 SuperHouse Automation Pty Ltd <info@superhouse.tv>
 from django.contrib import admin
 
-from .models import Design, TestSuite
+from .models import Design, TestRun, TestSuite
 
 
 @admin.register(Design)
@@ -15,3 +15,14 @@ class DesignAdmin(admin.ModelAdmin):
 class TestSuiteAdmin(admin.ModelAdmin):
     list_display = ('design', 'version', 'status', 'register_created_dt', 'package_fetched_dt')
     list_filter = ('status',)
+
+
+@admin.register(TestRun)
+class TestRunAdmin(admin.ModelAdmin):
+    list_display = ('test_suite', 'serial_number', 'operator', 'passed', 'aborted', 'finished_dt', 'docket_printed_dt')
+    list_filter = ('passed', 'aborted')
+    search_fields = ('serial_number',)
+    readonly_fields = (
+        'test_suite', 'serial_number', 'operator', 'started_dt', 'finished_dt', 'passed', 'aborted',
+        'report', 'docket_text', 'docket_image', 'docket_printed_dt', 'docket_print_error',
+    )
