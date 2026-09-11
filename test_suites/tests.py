@@ -11,11 +11,16 @@ from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
+
+from testomatic.runner import RunReport, StepOutcome
+from testomatic.steps import StepResult
+from testomatic.suite import ManualCheck, TestStep
 
 from core.models import DeviceSettings
 
-from . import views
-from .models import Design, TestSuite
+from . import docket, views
+from .models import Design, TestRun, TestSuite
 from .sync import fetch_design_thumbnail, fetch_test_suite_package, sync_test_suites
 
 
@@ -410,7 +415,7 @@ class TestSuiteRunViewTest(MediaIsolatedTestCase):
 
     @patch('test_suites.views._run_test_suite')
     def test_shows_pass_result(self, mock_run):
-        mock_run.return_value = ('[PASS] Buzz once: ok\n\nResult: PASS', True, None)
+        mock_run.return_value = views.RunResult('[PASS] Buzz once: ok\n\nResult: PASS', True, None)
 
         response = self.client.post(
             reverse('test_suites:run', args=[self.test_suite.pk]), {'serial_number': '999'}
@@ -422,7 +427,7 @@ class TestSuiteRunViewTest(MediaIsolatedTestCase):
 
     @patch('test_suites.views._run_test_suite')
     def test_shows_fail_result(self, mock_run):
-        mock_run.return_value = ('[FAIL] Buzz once: nope\n\nResult: FAIL', False, None)
+        mock_run.return_value = views.RunResult('[FAIL] Buzz once: nope\n\nResult: FAIL', False, None)
 
         response = self.client.post(
             reverse('test_suites:run', args=[self.test_suite.pk]), {'serial_number': '999'}
@@ -432,7 +437,7 @@ class TestSuiteRunViewTest(MediaIsolatedTestCase):
 
     @patch('test_suites.views._run_test_suite')
     def test_shows_error_message_instead_of_result(self, mock_run):
-        mock_run.return_value = (None, None, 'Test Runner hardware support is not available on this device: boom')
+        mock_run.return_value = views.RunResult(None, None, 'Test Runner hardware support is not available on this device: boom')
 
         response = self.client.post(
             reverse('test_suites:run', args=[self.test_suite.pk]), {'serial_number': '999'}
@@ -444,7 +449,7 @@ class TestSuiteRunViewTest(MediaIsolatedTestCase):
 
     @patch('test_suites.views._run_test_suite')
     def test_still_shows_steps_and_checks_alongside_result(self, mock_run):
-        mock_run.return_value = ('Result: PASS', True, None)
+        mock_run.return_value = views.RunResult('Result: PASS', True, None)
         content = package_zip_bytes(
             test_steps=[{'order': 1, 'step_type': 'BEEP', 'name': 'Buzz once', 'abort_on_fail': False, 'config': {'duration_ms': 500}}],
         )
@@ -458,7 +463,7 @@ class TestSuiteRunViewTest(MediaIsolatedTestCase):
 
     @patch('test_suites.views._run_test_suite')
     def test_shows_bare_serial_number_from_barcode_scan(self, mock_run):
-        mock_run.return_value = ('Result: PASS', True, None)
+        mock_run.return_value = views.RunResult('Result: PASS', True, None)
 
         response = self.client.post(
             reverse('test_suites:run', args=[self.test_suite.pk]), {'serial_number': '12345'}
@@ -468,7 +473,7 @@ class TestSuiteRunViewTest(MediaIsolatedTestCase):
 
     @patch('test_suites.views._run_test_suite')
     def test_strips_configured_url_stem_from_qr_code_scan(self, mock_run):
-        mock_run.return_value = ('Result: PASS', True, None)
+        mock_run.return_value = views.RunResult('Result: PASS', True, None)
         DeviceSettings.objects.update_or_create(
             pk=1, defaults={'device_details_url_stem': 'https://d.superlab.au/'}
         )
@@ -485,11 +490,41 @@ class TestSuiteRunViewTest(MediaIsolatedTestCase):
         # testomatic_io genuinely isn't installed in this dev/test environment - it's Pi/Linux-only,
         # pulled in only via testomatic-runner's "pi" extra - so this exercises the real ImportError
         # path rather than mocking it away.
-        output, passed, error = views._run_test_suite(self.test_suite)
+        run_result = views._run_test_suite(self.test_suite)
 
-        self.assertIsNone(output)
-        self.assertIsNone(passed)
-        self.assertIn('not available on this device', error)
+        self.assertIsNone(run_result.output)
+        self.assertIsNone(run_result.passed)
+        self.assertIn('not available on this device', run_result.error)
+
+    @patch('test_suites.docket.subprocess.run')
+    @patch('test_suites.views._run_test_suite')
+    def test_creates_test_run_and_shows_print_status_when_printer_configured(self, mock_run, mock_subprocess_run):
+        DeviceSettings.objects.update_or_create(
+            pk=1, defaults={'printer_name': 'Printer_POS-80', 'device_details_url_stem': 'https://d.superlab.au/'}
+        )
+        mock_run.return_value = views.RunResult('Result: PASS', True, None, _make_report(), [])
+
+        response = self.client.post(
+            reverse('test_suites:run', args=[self.test_suite.pk]), {'serial_number': '3990'}
+        )
+
+        self.assertEqual(TestRun.objects.count(), 1)
+        test_run = TestRun.objects.get()
+        self.assertEqual(test_run.serial_number, '3990')
+        self.assertTrue(test_run.docket_image)
+        self.assertContains(response, 'Docket printed to Printer_POS-80')
+        self.assertContains(response, 'Reprint Docket')
+        mock_subprocess_run.assert_called_once()
+
+    @patch('test_suites.views._run_test_suite')
+    def test_no_test_run_created_when_run_could_not_start(self, mock_run):
+        mock_run.return_value = views.RunResult(
+            None, None, 'Test Runner hardware support is not available on this device: boom'
+        )
+
+        self.client.post(reverse('test_suites:run', args=[self.test_suite.pk]), {'serial_number': '3990'})
+
+        self.assertEqual(TestRun.objects.count(), 0)
 
 
 class TestSuiteIsCurrentVersionTest(MediaIsolatedTestCase):
@@ -531,3 +566,221 @@ class TestSuiteIsCurrentVersionTest(MediaIsolatedTestCase):
             register_id=2, design=self.design, version=2, status='SAVED', register_created_dt='2026-08-27T00:00:00Z'
         )
         self.assertFalse(v1.is_current_version())
+
+
+def _make_report(passed=True, message='ok', aborted=False):
+    return RunReport(
+        outcomes=[
+            StepOutcome(
+                step=TestStep(
+                    order=1, step_type='BEEP', name='Buzz once', abort_on_fail=False,
+                    config_schema_version=None, config={},
+                ),
+                result=StepResult(passed=passed, message=message),
+            ),
+        ],
+        aborted=aborted,
+    )
+
+
+class DocketLinesTest(TestCase):
+    def setUp(self):
+        self.design = Design.objects.create(
+            register_id=133, sku='ABC123', name='Widget', client_name='Acme', hw_version='9.1'
+        )
+        self.test_suite = TestSuite.objects.create(
+            register_id=6, design=self.design, version=2, status='SAVED', register_created_dt='2026-08-26T10:02:56Z'
+        )
+        self.test_suite.refresh_from_db()  # register_created_dt is a real datetime only once re-fetched
+        self.manual_checks = [
+            ManualCheck(order=1, text='Serial number on back'),
+            ManualCheck(order=2, text='Blue power LED works'),
+        ]
+
+    def _lines(self, report=None, manual_checks=None):
+        return docket.build_docket_lines(
+            self.test_suite, '3990', 'Jonathan Oxer', report or _make_report(), manual_checks or self.manual_checks,
+            timezone.now(), 'https://d.superlab.au/3990',
+        )
+
+    def test_header_shows_client_device_serial_and_hw_version(self):
+        lines = self._lines()
+
+        self.assertIn('Client: Acme', lines)
+        self.assertIn('Device: Widget', lines)
+        self.assertIn('Serial: 3990', lines)
+        self.assertIn('H/W version: 9.1', lines)
+        self.assertIn('Tested by: Jonathan Oxer', lines)
+
+    def test_omits_firmware_version(self):
+        content = '\n'.join(self._lines())
+
+        self.assertNotIn('F/W version', content)
+
+    def test_lists_passing_automatic_check(self):
+        content = '\n'.join(self._lines(report=_make_report(passed=True)))
+
+        self.assertIn('Buzz once:', content)
+        self.assertIn('  ok', content)
+
+    def test_lists_failing_automatic_check_with_message(self):
+        content = '\n'.join(self._lines(report=_make_report(passed=False, message='no beep detected')))
+
+        self.assertIn('Buzz once:', content)
+        self.assertIn('FAILED: no beep detected', content)
+
+    def test_notes_aborted_run(self):
+        content = '\n'.join(self._lines(report=_make_report(aborted=True)))
+
+        self.assertIn('ABORTED', content)
+
+    def test_lists_manual_checks_as_checkboxes(self):
+        content = '\n'.join(self._lines())
+
+        self.assertIn('Serial number on back', content)
+        self.assertIn('Blue power LED works', content)
+        self.assertIn('[  ]', content)
+
+    def test_footer_includes_suite_version_and_url(self):
+        content = '\n'.join(self._lines())
+
+        self.assertIn('Test version: v2', content)
+        self.assertIn('https://d.superlab.au/3990', content)
+
+
+class DocketImageTest(TestCase):
+    def test_renders_image_with_expected_width(self):
+        lines = ['        Test Report', 'Client: Acme', 'Device: Widget']
+
+        image = docket.render_docket_image(lines, 'https://d.superlab.au/3990')
+
+        self.assertEqual(image.width, docket.DOCKET_IMAGE_WIDTH)
+        self.assertGreater(image.height, 0)
+
+
+class SaveTestRunTest(MediaIsolatedTestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='testuser', password='secret123')
+        self.design = Design.objects.create(
+            register_id=133, sku='ABC123', name='Widget', client_name='Acme', hw_version='9.1'
+        )
+        self.test_suite = TestSuite.objects.create(
+            register_id=6, design=self.design, version=2, status='SAVED', register_created_dt='2026-08-26T10:02:56Z'
+        )
+        self.manual_checks = [ManualCheck(order=1, text='Serial number on back')]
+
+    def test_creates_test_run_with_structured_report(self):
+        run_result = views.RunResult('irrelevant text', True, None, _make_report(), self.manual_checks)
+
+        test_run = views._save_test_run(self.test_suite, '3990', self.user, run_result, timezone.now())
+
+        self.assertEqual(test_run.test_suite, self.test_suite)
+        self.assertEqual(test_run.serial_number, '3990')
+        self.assertEqual(test_run.operator, self.user)
+        self.assertTrue(test_run.passed)
+        self.assertFalse(test_run.aborted)
+        self.assertEqual(test_run.report['outcomes'][0]['step']['name'], 'Buzz once')
+        self.assertEqual(test_run.report['manual_checks'][0]['text'], 'Serial number on back')
+
+    def test_records_aborted_and_failed_run(self):
+        run_result = views.RunResult('irrelevant text', False, None, _make_report(passed=False, aborted=True), [])
+
+        test_run = views._save_test_run(self.test_suite, '3990', self.user, run_result, timezone.now())
+
+        self.assertFalse(test_run.passed)
+        self.assertTrue(test_run.aborted)
+
+
+class PrintTestRunDocketTest(MediaIsolatedTestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username='testuser', password='secret123', first_name='Jonathan', last_name='Oxer'
+        )
+        self.design = Design.objects.create(
+            register_id=133, sku='ABC123', name='Widget', client_name='Acme', hw_version='9.1'
+        )
+        self.test_suite = TestSuite.objects.create(
+            register_id=6, design=self.design, version=2, status='SAVED', register_created_dt='2026-08-26T10:02:56Z'
+        )
+        self.test_suite.refresh_from_db()  # register_created_dt is a real datetime only once re-fetched
+        self.run_result = views.RunResult('irrelevant text', True, None, _make_report(), [])
+        self.test_run = TestRun.objects.create(
+            test_suite=self.test_suite, serial_number='3990', operator=self.user,
+            started_dt=timezone.now(), finished_dt=timezone.now(), passed=True, aborted=False,
+            report={'outcomes': [], 'aborted': False, 'manual_checks': []},
+        )
+
+    @patch('test_suites.docket.subprocess.run')
+    def test_prints_when_printer_configured(self, mock_subprocess_run):
+        DeviceSettings.objects.update_or_create(pk=1, defaults={'printer_name': 'Printer_POS-80'})
+        device_settings = DeviceSettings.get_solo()
+
+        views._print_test_run_docket(self.test_run, self.run_result, device_settings)
+
+        self.test_run.refresh_from_db()
+        self.assertTrue(self.test_run.docket_image)
+        self.assertIn('Buzz once', self.test_run.docket_text)
+        self.assertIsNotNone(self.test_run.docket_printed_dt)
+        mock_subprocess_run.assert_called_once()
+        self.assertEqual(mock_subprocess_run.call_args[0][0][:3], ['lp', '-d', 'Printer_POS-80'])
+
+    def test_saves_docket_but_skips_printing_when_no_printer_configured(self):
+        device_settings = DeviceSettings.get_solo()  # printer_name blank by default
+
+        views._print_test_run_docket(self.test_run, self.run_result, device_settings)
+
+        self.test_run.refresh_from_db()
+        self.assertTrue(self.test_run.docket_image)
+        self.assertIsNone(self.test_run.docket_printed_dt)
+
+    @patch('test_suites.docket.subprocess.run')
+    def test_records_error_when_print_fails(self, mock_subprocess_run):
+        import subprocess
+        mock_subprocess_run.side_effect = subprocess.CalledProcessError(1, 'lp')
+        DeviceSettings.objects.update_or_create(pk=1, defaults={'printer_name': 'Printer_POS-80'})
+        device_settings = DeviceSettings.get_solo()
+
+        views._print_test_run_docket(self.test_run, self.run_result, device_settings)
+
+        self.test_run.refresh_from_db()
+        self.assertIn('Docket print failed', self.test_run.docket_print_error)
+        self.assertIsNone(self.test_run.docket_printed_dt)
+
+
+class TestRunReprintViewTest(MediaIsolatedTestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='testuser', password='secret123')
+        self.client.force_login(self.user)
+        self.design = Design.objects.create(
+            register_id=133, sku='ABC123', name='Widget', client_name='Acme', hw_version='9.1'
+        )
+        self.test_suite = TestSuite.objects.create(
+            register_id=6, design=self.design, version=2, status='SAVED', register_created_dt='2026-08-26T10:02:56Z'
+        )
+        self.test_suite.package_file.save('6.zip', ContentFile(package_zip_bytes()), save=True)
+        self.test_run = TestRun.objects.create(
+            test_suite=self.test_suite, serial_number='3990', operator=self.user,
+            started_dt=timezone.now(), finished_dt=timezone.now(), passed=True, aborted=False,
+            report={'outcomes': [], 'aborted': False, 'manual_checks': []},
+        )
+        image = docket.render_docket_image(['Test Report'], 'https://d.superlab.au/3990')
+        buffer = io.BytesIO()
+        image.save(buffer, format='PNG')
+        self.test_run.docket_image.save('3990.png', ContentFile(buffer.getvalue()), save=True)
+
+    @patch('test_suites.docket.subprocess.run')
+    def test_reprints_stored_image(self, mock_subprocess_run):
+        DeviceSettings.objects.update_or_create(pk=1, defaults={'printer_name': 'Printer_POS-80'})
+
+        response = self.client.post(reverse('test_suites:run_reprint', args=[self.test_run.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        mock_subprocess_run.assert_called_once()
+        self.assertEqual(mock_subprocess_run.call_args[0][0][:3], ['lp', '-d', 'Printer_POS-80'])
+        self.test_run.refresh_from_db()
+        self.assertIsNotNone(self.test_run.docket_printed_dt)
+
+    def test_shows_error_when_no_printer_configured(self):
+        response = self.client.post(reverse('test_suites:run_reprint', args=[self.test_run.pk]))
+
+        self.assertContains(response, 'No printer is configured')

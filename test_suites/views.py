@@ -1,14 +1,20 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 SuperHouse Automation Pty Ltd <info@superhouse.tv>
+import dataclasses
+import io
+
 from django.contrib.auth.decorators import login_required
+from django.core.files.base import ContentFile
 from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from core.models import DeviceSettings
 
-from .models import Design, TestSuite
+from . import docket
+from .models import Design, TestRun, TestSuite
 from .serial_number import extract_serial_number
 from .sync import fetch_test_suite_package, sync_test_suites
 from .test_suite_package import parse_test_suite_package
@@ -69,9 +75,45 @@ def test_suite_run(request, pk):
         context['serial_number_error'] = 'Scan or enter a serial number before running the Test Suite.'
         return render(request, 'test_suites/detail.html', context)
 
+    device_settings = context['device_settings']
+    serial_number = extract_serial_number(raw_serial_number, device_settings.device_details_url_stem)
+    context['serial_number'] = serial_number
+
+    started_dt = timezone.now()
+    run_result = _run_test_suite(test_suite)
+    context['run_output'] = run_result.output
+    context['run_passed'] = run_result.passed
+    context['run_error'] = run_result.error
+
+    if run_result.report is not None:
+        test_run = _save_test_run(test_suite, serial_number, request.user, run_result, started_dt)
+        _print_test_run_docket(test_run, run_result, device_settings)
+        context['test_run'] = test_run
+
+    return render(request, 'test_suites/detail.html', context)
+
+
+@login_required
+@require_POST
+def test_run_reprint(request, pk):
+    test_run = get_object_or_404(TestRun, pk=pk)
     device_settings = DeviceSettings.get_solo()
-    context['serial_number'] = extract_serial_number(raw_serial_number, device_settings.device_details_url_stem)
-    context['run_output'], context['run_passed'], context['run_error'] = _run_test_suite(test_suite)
+
+    if not device_settings.printer_name:
+        test_run.docket_print_error = 'No printer is configured on this device (see Tester Settings).'
+    else:
+        try:
+            with test_run.docket_image.open('rb') as f:
+                image = docket.load_docket_image(f)
+            docket.print_docket_image(image, device_settings.printer_name)
+            test_run.docket_printed_dt = timezone.now()
+            test_run.docket_print_error = ''
+        except Exception as exc:
+            test_run.docket_print_error = f'Reprint failed: {exc}'
+    test_run.save(update_fields=['docket_printed_dt', 'docket_print_error'])
+
+    context = _detail_context(test_run.test_suite)
+    context['test_run'] = test_run
     return render(request, 'test_suites/detail.html', context)
 
 
@@ -84,16 +126,28 @@ def _detail_context(test_suite):
         'notes': package.notes,
         'steps': package.steps,
         'manual_checks': package.manual_checks,
+        'device_settings': DeviceSettings.get_solo(),
     }
+
+
+@dataclasses.dataclass
+class RunResult:
+    output: str | None
+    passed: bool | None
+    error: str | None
+    report: object | None = None  # testomatic.runner.RunReport - untyped here to avoid importing
+    manual_checks: list = dataclasses.field(default_factory=list)  # testomatic.suite.ManualCheck
 
 
 def _run_test_suite(test_suite):
     """Executes test_suite's downloaded package against real hardware via testomatic-runner.
 
-    Returns (output_text, passed, error_message) - error_message is set instead of output/passed
-    if testomatic_io isn't available on this device (only installed via testomatic-runner's "pi"
-    extra, on a real Testomatic Pi - see testomatic-runner's CLAUDE.md) or the suite couldn't be
-    parsed/executed. Not stored anywhere yet - the operator sees it once, for this request only.
+    Returns a RunResult: `error` is set instead of `output`/`passed`/`report` if testomatic_io
+    isn't available on this device (only installed via testomatic-runner's "pi" extra, on a real
+    Testomatic Pi - see testomatic-runner's CLAUDE.md) or the suite couldn't be parsed/executed.
+    `report`/`manual_checks` carry the structured result so the caller can persist a TestRun and
+    format/print a Test Docket (see _save_test_run()/_print_test_run_docket() below) without
+    re-parsing `output`'s already-formatted text.
 
     Passes this device's own DeviceSettings (core.models) firmware-upload tool paths through to
     TestRunner, so an UPLOAD_FIRMWARE_* step's executor (testomatic-runner's steps/firmware.py)
@@ -104,7 +158,7 @@ def _run_test_suite(test_suite):
         from testomatic.suite import load_suite
         from testomatic_io import Chassis, TestModule
     except ImportError as exc:
-        return None, None, f'Test Runner hardware support is not available on this device: {exc}'
+        return RunResult(None, None, f'Test Runner hardware support is not available on this device: {exc}')
 
     device_settings = DeviceSettings.get_solo()
 
@@ -121,6 +175,58 @@ def _run_test_suite(test_suite):
             stm32cubeprogrammer_path=device_settings.stm32cubeprogrammer_path or None,
         ).run(suite)
     except Exception as exc:  # a parse/hardware-init failure must not crash the whole page
-        return None, None, f'Test run failed: {exc}'
+        return RunResult(None, None, f'Test run failed: {exc}')
 
-    return format_report(report, suite.manual_checks), report.passed, None
+    return RunResult(format_report(report, suite.manual_checks), report.passed, None, report, suite.manual_checks)
+
+
+def _save_test_run(test_suite, serial_number, user, run_result, started_dt):
+    """Persists the structured result of a completed run (issue #6) - only called when
+    run_result.report is not None, i.e. testomatic-runner actually executed the suite."""
+    report = run_result.report
+    return TestRun.objects.create(
+        test_suite=test_suite,
+        serial_number=serial_number,
+        operator=user,
+        started_dt=started_dt,
+        finished_dt=timezone.now(),
+        passed=report.passed,
+        aborted=report.aborted,
+        report={
+            'outcomes': [dataclasses.asdict(outcome) for outcome in report.outcomes],
+            'aborted': report.aborted,
+            'manual_checks': [dataclasses.asdict(check) for check in run_result.manual_checks],
+        },
+    )
+
+
+def _print_test_run_docket(test_run, run_result, device_settings):
+    """Formats test_run's Test Docket (issue #8) and prints it if a printer is configured.
+
+    docket_text/docket_image are always saved regardless of whether printing itself succeeds, so
+    a printer that's offline right now can still be fixed and reprinted from later via
+    test_run_reprint() - reprinting resends this saved image rather than re-rendering, so a
+    docket's exact appearance stays stable even if this function's rendering changes later.
+    """
+    device_details_url = device_settings.device_details_url_stem + test_run.serial_number
+    operator_name = test_run.operator.get_full_name() or test_run.operator.get_username()
+
+    lines = docket.build_docket_lines(
+        test_run.test_suite, test_run.serial_number, operator_name,
+        run_result.report, run_result.manual_checks, test_run.finished_dt, device_details_url,
+    )
+    image = docket.render_docket_image(lines, device_details_url)
+
+    test_run.docket_text = '\n'.join(lines)
+    buffer = io.BytesIO()
+    image.save(buffer, format='PNG')
+    test_run.docket_image.save(f'{test_run.pk}.png', ContentFile(buffer.getvalue()), save=False)
+
+    if device_settings.printer_name:
+        try:
+            docket.print_docket_image(image, device_settings.printer_name)
+            test_run.docket_printed_dt = timezone.now()
+        except Exception as exc:
+            test_run.docket_print_error = f'Docket print failed: {exc}'
+
+    test_run.save()

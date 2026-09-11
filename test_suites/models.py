@@ -2,6 +2,7 @@
 # Copyright (C) 2026 SuperHouse Automation Pty Ltd <info@superhouse.tv>
 from pathlib import Path
 
+from django.conf import settings
 from django.db import models
 
 
@@ -64,3 +65,41 @@ class TestSuite(models.Model):
         every synced version, not just fetched ones, since a newer version can exist in our
         metadata before its package has been downloaded."""
         return self.version == self.design.test_suites.aggregate(models.Max('version'))['version__max']
+
+
+def docket_image_upload_path(instance, filename):
+    return f'dockets/{instance.test_suite.design.sku}/{instance.pk}.png'
+
+
+class TestRun(models.Model):
+    """One execution of a TestSuite against a physical device (issues #6/#8). Created only when
+    testomatic-runner actually returns a RunReport - not when the run couldn't even start (e.g.
+    hardware support unavailable on this device), matching
+    test_suites.views._run_test_suite()'s existing error-only-path behaviour for that case.
+
+    report is the structured, per-step result (RunReport.outcomes plus report.aborted, and the
+    suite's manual_checks) - the "detailed... structured... grouped by Test Step" storage issue #6
+    asks for, ready for a future batch-upload transport to Register without re-running anything.
+
+    docket_image is the actual bitmap sent to the printer - kept as the source of truth for
+    reprints (see test_suites.views.test_run_reprint) so a historical docket's exact appearance
+    survives future changes to docket.py's rendering.
+    """
+    test_suite = models.ForeignKey(TestSuite, related_name='test_runs', on_delete=models.PROTECT)
+    serial_number = models.CharField(max_length=100)
+    operator = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    started_dt = models.DateTimeField()
+    finished_dt = models.DateTimeField()
+    passed = models.BooleanField()
+    aborted = models.BooleanField(default=False)
+    report = models.JSONField()
+    docket_text = models.TextField(blank=True)
+    docket_image = models.FileField(upload_to=docket_image_upload_path, null=True, blank=True)
+    docket_printed_dt = models.DateTimeField(null=True, blank=True)
+    docket_print_error = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-finished_dt']
+
+    def __str__(self):
+        return f'{self.test_suite} — Serial {self.serial_number} ({self.finished_dt:%Y-%m-%d %H:%M})'

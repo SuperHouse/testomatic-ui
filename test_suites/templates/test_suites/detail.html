@@ -64,6 +64,31 @@
         </div>
     {% endif %}
 
+    {% if test_run %}
+        <div class="card mb-3">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <p class="mb-0">
+                    {% if test_run.docket_print_error %}
+                        <span class="text-danger">{{ test_run.docket_print_error }}</span>
+                    {% elif test_run.docket_printed_dt %}
+                        Docket printed to {{ device_settings.printer_name }}.
+                    {% else %}
+                        No printer is configured on this device — docket not printed (see Tester Settings).
+                    {% endif %}
+                </p>
+                {% if test_run.docket_image %}
+                    <form method="post" action="{% url 'test_suites:run_reprint' test_run.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-outline-secondary">
+                            <i class="cil-print me-1"></i>
+                            Reprint Docket
+                        </button>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+
     {% if notes %}
         <div class="card mb-3">
             <div class="card-body">

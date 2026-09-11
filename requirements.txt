@@ -1,6 +1,7 @@
 Django>=5.2,<6
 python-dotenv==1.2.2
 requests==2.33.0
+qrcode[pil]==8.2
 
 # Not yet on PyPI -- installed from the sibling checkout. Core testomatic-runner only (Test Suite
 # parsing/registry/TestRunner); its "pi" extra (which pulls in testomatic-io, needs real Raspberry
