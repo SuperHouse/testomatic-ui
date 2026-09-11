@@ -249,10 +249,18 @@ class TestSuiteViewsTest(MediaIsolatedTestCase):
         self.assertContains(response, 'Widget')
         self.assertContains(response, 'ABC123')
 
-    def test_list_view_header_shows_org_then_bold_name_then_version(self):
+    def test_list_view_shows_organisation_sku_name_and_version_columns(self):
         response = self.client.get(reverse('test_suites:list'))
+        content = response.content.decode()
 
-        self.assertContains(response, '<h5 class="mb-0">Acme <b>Widget</b> v1.0</h5>')
+        self.assertIn('<td>Acme</td>', content)
+        self.assertIn('<td>ABC123</td>', content)
+        self.assertIn('<td>Widget</td>', content)
+        self.assertIn('<td>1.0</td>', content)
+        # Columns render in this order: Organisation, SKU, Name, Version.
+        self.assertLess(content.index('>Acme<'), content.index('>ABC123<'))
+        self.assertLess(content.index('>ABC123<'), content.index('>Widget<'))
+        self.assertLess(content.index('>Widget<'), content.index('>1.0<'))
 
     def test_list_view_excludes_designs_with_no_test_suites(self):
         Design.objects.create(register_id=999, sku='NOSUITE', name='No Suites Yet', hw_version='1.0')
@@ -261,10 +269,11 @@ class TestSuiteViewsTest(MediaIsolatedTestCase):
 
         self.assertNotContains(response, 'No Suites Yet')
 
-    def test_list_view_shows_generic_icon_when_no_thumbnail(self):
+    def test_list_view_shows_no_thumbnail_image_when_absent(self):
+        # The thumbnail column has no fallback icon (deliberately removed in 3a3390c) - a design
+        # with no thumbnail just renders an empty cell.
         response = self.client.get(reverse('test_suites:list'))
 
-        self.assertContains(response, 'cil-memory')
         self.assertNotContains(response, '<img src="/media/design_thumbnails/')
 
     def test_list_view_shows_thumbnail_image_when_present(self):
