@@ -7,6 +7,19 @@ the text on one seamless thermal-printer receipt - see build_docket_lines()/rend
 below. DOCKET_IMAGE_WIDTH/FONT_SIZE assume an 80mm receipt printer at 203dpi (matching the sample
 "Printer_POS-80" queue name already in DeviceSettings.printer_name's help text); this hasn't been
 tested against real thermal-printer hardware yet and will likely need tuning once it has.
+
+Layout (issue #10 and its sub-issues #11-#13): since the font is monospace, `_line_width_chars()`
+converts the printable pixel width into a character budget, and every list in
+`build_docket_lines()` (Automatic Checks, Manual Checks, plus the header/section rules) is padded
+or right-aligned against that same budget via `_justify()`/`_rule()`, rather than each padding
+itself to its own longest entry - this is what makes the docket actually use the full paper width
+(#11) instead of just the left portion the widest line happens to reach. Automatic Checks are one
+line per check, name left and PASS/FAIL right-aligned (#12), with a passing check's measured
+value (`StepResult.measured['display']`, set by the testomatic-runner executor that took the
+reading - see power.py/iomod.py) shown alongside PASS when the executor provides one (#13); a
+step type with no reading to show (BEEP, firmware uploads, etc.) just shows PASS/FAIL. A failing
+check still gets its own indented message line below, since failure text can run long and
+compressing it risks losing diagnostic detail.
 """
 import subprocess
 import tempfile
@@ -17,7 +30,7 @@ from PIL import Image, ImageDraw, ImageFont
 from testomatic.steps.firmware import FIRMWARE_STEP_TYPES
 
 DOCKET_IMAGE_WIDTH = 576
-FONT_SIZE = 22
+FONT_SIZE = 33  # issue #10: was 22 - bumped ~50% for legibility on a printed receipt
 LINE_SPACING = 6
 MARGIN = 16
 QR_SIZE = 240
@@ -36,6 +49,36 @@ def _load_font():
         if Path(path).exists():
             return ImageFont.truetype(path, FONT_SIZE)
     return ImageFont.load_default()
+
+
+def _line_width_chars():
+    """How many monospace characters fit across the printable width (issue #11) - measured from
+    the actual loaded font's own glyph metrics rather than a hardcoded guess, so this stays
+    correct if FONT_SIZE or DOCKET_IMAGE_WIDTH changes, and stays in sync with what
+    render_docket_image() will actually draw (it loads the same font the same way)."""
+    char_width = _load_font().getlength('0')
+    return max(1, int((DOCKET_IMAGE_WIDTH - 2 * MARGIN) / char_width))
+
+
+def _justify(left, right, width):
+    """`left` and `right` on one line, `right` flush to the far end of a `width`-character line
+    and `left` filling the rest - used for both the Automatic Checks pass/fail column and the
+    Manual Checks checkbox column, so both stretch to the paper's full width (issue #11) instead
+    of only as far as their own longest entry. `left` is truncated with a trailing ellipsis if it
+    doesn't fit; `right` is never truncated except in the degenerate case where it alone exceeds
+    `width` (a screen this narrow isn't a real receipt printer)."""
+    if len(right) >= width:
+        return right[:width]
+    available = width - len(right)
+    if len(left) > available:
+        left = (left[:available - 1] + '…') if available > 1 else left[:available]
+    return left.ljust(available) + right
+
+
+def _rule(label, width, fill='='):
+    """A `label` centred within a `fill`-character rule line, `width` characters wide - used for
+    the section headers/footer so they stretch to the same width as everything else (issue #11)."""
+    return f' {label} '.center(width, fill)
 
 
 def build_docket_lines(test_suite, serial_number, operator_name, report, manual_checks, finished_dt, device_details_url):
@@ -58,10 +101,11 @@ def build_docket_lines(test_suite, serial_number, operator_name, report, manual_
     step's name always appears here regardless, since it's reporting what's physically on the
     board rather than a pass/fail result.
     """
+    line_chars = _line_width_chars()
     design = test_suite.design
     lines = [
-        '        Test Report',
-        '      www.SuperLab.au',
+        'Test Report'.center(line_chars),
+        'www.SuperLab.au'.center(line_chars),
         '',
         f'Client: {design.client_name}',
         f'Device: {design.name}',
@@ -80,7 +124,7 @@ def build_docket_lines(test_suite, serial_number, operator_name, report, manual_
         f'Tested by: {operator_name}',
         finished_dt.strftime('%Y-%m-%d %H:%M:%S %z'),
         '',
-        '=== Automatic checks =======',
+        _rule('Automatic checks', line_chars),
     ]
 
     for outcome in report.outcomes:
@@ -88,10 +132,15 @@ def build_docket_lines(test_suite, serial_number, operator_name, report, manual_
         # while it's passing - a failure is never silently missing from the printed record.
         if not outcome.step.include_on_docket and outcome.result.passed:
             continue
-        lines.append(f'{outcome.step.name}:')
         if outcome.result.passed:
-            lines.append('  ok')
+            # issue #13: a step that took a measurement (e.g. READ_RAIL_VOLTAGE) reports it
+            # alongside PASS; a step with nothing to measure (BEEP, firmware uploads, ...) just
+            # shows PASS - see power.py/iomod.py for which step types set measured['display'].
+            display = outcome.result.measured.get('display')
+            result_text = f'PASS  {display}' if display else 'PASS'
+            lines.append(_justify(outcome.step.name, result_text, line_chars))
         else:
+            lines.append(_justify(outcome.step.name, 'FAIL', line_chars))
             lines.append(f'  FAILED: {outcome.result.message}')
 
     if report.aborted:
@@ -99,16 +148,15 @@ def build_docket_lines(test_suite, serial_number, operator_name, report, manual_
         lines.append('ABORTED: abort-on-fail step failed, all power rails turned off')
 
     lines.append('')
-    lines.append('=== Manual checks ==========')
+    lines.append(_rule('Manual checks', line_chars))
     if manual_checks:
-        text_width = max(len(check.text) for check in manual_checks)
         for check in manual_checks:
-            lines.append(f'{check.text.ljust(text_width)} [  ]')
+            lines.append(_justify(check.text, '[  ]', line_chars))
 
     lines.append('')
     lines.append(f'Test version: v{test_suite.version} ({test_suite.register_created_dt.date()})')
     lines.append(device_details_url)
-    lines.append('-------- test end --------')
+    lines.append(_rule('test end', line_chars, fill='-'))
     return lines
 
 

@@ -664,17 +664,32 @@ class DocketLinesTest(TestCase):
 
         self.assertIn('  Firmware v8.1.1', content)
 
-    def test_lists_passing_automatic_check(self):
-        content = '\n'.join(self._lines(report=_make_report(passed=True)))
+    def test_lists_passing_automatic_check_as_one_right_aligned_line(self):
+        lines = self._lines(report=_make_report(passed=True))
 
-        self.assertIn('Buzz once:', content)
-        self.assertIn('  ok', content)
+        line_chars = docket._line_width_chars()
+        self.assertIn(docket._justify('Buzz once', 'PASS', line_chars), lines)
 
     def test_lists_failing_automatic_check_with_message(self):
-        content = '\n'.join(self._lines(report=_make_report(passed=False, message='no beep detected')))
+        lines = self._lines(report=_make_report(passed=False, message='no beep detected'))
 
-        self.assertIn('Buzz once:', content)
-        self.assertIn('FAILED: no beep detected', content)
+        line_chars = docket._line_width_chars()
+        self.assertIn(docket._justify('Buzz once', 'FAIL', line_chars), lines)
+        self.assertIn('  FAILED: no beep detected', lines)
+
+    def test_shows_measured_value_alongside_pass(self):
+        outcome = StepOutcome(
+            step=TestStep(
+                order=2, step_type='READ_RAIL_VOLTAGE', name='5V Rail', abort_on_fail=False,
+                config_schema_version=None, config={},
+            ),
+            result=StepResult(passed=True, message='ok', measured={'voltage': 5.01, 'display': '5.01V'}),
+        )
+        report = _make_report(extra_outcomes=[outcome])
+        lines = self._lines(report=report)
+
+        line_chars = docket._line_width_chars()
+        self.assertIn(docket._justify('5V Rail', 'PASS  5.01V', line_chars), lines)
 
     def test_notes_aborted_run(self):
         content = '\n'.join(self._lines(report=_make_report(aborted=True)))
@@ -687,12 +702,13 @@ class DocketLinesTest(TestCase):
         self.assertNotIn('Buzz once', content)
 
     def test_still_shows_suppressed_step_that_failed(self):
-        content = '\n'.join(self._lines(
+        lines = self._lines(
             report=_make_report(passed=False, message='no beep detected', include_on_docket=False)
-        ))
+        )
 
-        self.assertIn('Buzz once:', content)
-        self.assertIn('FAILED: no beep detected', content)
+        line_chars = docket._line_width_chars()
+        self.assertIn(docket._justify('Buzz once', 'FAIL', line_chars), lines)
+        self.assertIn('  FAILED: no beep detected', lines)
 
     def test_lists_manual_checks_as_checkboxes(self):
         content = '\n'.join(self._lines())
@@ -700,6 +716,14 @@ class DocketLinesTest(TestCase):
         self.assertIn('Serial number on back', content)
         self.assertIn('Blue power LED works', content)
         self.assertIn('[  ]', content)
+
+    def test_manual_check_checkbox_uses_full_paper_width(self):
+        # issue #11: the checkbox sits flush against the paper's full printable width, not just
+        # past whichever check's own text happens to be longest.
+        lines = self._lines(manual_checks=[ManualCheck(order=1, text='Short')])
+
+        line_chars = docket._line_width_chars()
+        self.assertIn(docket._justify('Short', '[  ]', line_chars), lines)
 
     def test_footer_includes_suite_version_and_url(self):
         content = '\n'.join(self._lines())
