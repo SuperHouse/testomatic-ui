@@ -138,6 +138,7 @@ class StepDisplay:
         self.step_type = data.get('step_type', '')
         self.name = data.get('name', '')
         self.abort_on_fail = bool(data.get('abort_on_fail'))
+        self.include_on_docket = bool(data.get('include_on_docket', True))
         self.config = data.get('config') or {}
 
     def get_color(self):

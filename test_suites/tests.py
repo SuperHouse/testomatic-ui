@@ -568,13 +568,13 @@ class TestSuiteIsCurrentVersionTest(MediaIsolatedTestCase):
         self.assertFalse(v1.is_current_version())
 
 
-def _make_report(passed=True, message='ok', aborted=False):
+def _make_report(passed=True, message='ok', aborted=False, include_on_docket=True):
     return RunReport(
         outcomes=[
             StepOutcome(
                 step=TestStep(
                     order=1, step_type='BEEP', name='Buzz once', abort_on_fail=False,
-                    config_schema_version=None, config={},
+                    config_schema_version=None, config={}, include_on_docket=include_on_docket,
                 ),
                 result=StepResult(passed=passed, message=message),
             ),
@@ -633,6 +633,19 @@ class DocketLinesTest(TestCase):
         content = '\n'.join(self._lines(report=_make_report(aborted=True)))
 
         self.assertIn('ABORTED', content)
+
+    def test_omits_suppressed_step_that_passed(self):
+        content = '\n'.join(self._lines(report=_make_report(passed=True, include_on_docket=False)))
+
+        self.assertNotIn('Buzz once', content)
+
+    def test_still_shows_suppressed_step_that_failed(self):
+        content = '\n'.join(self._lines(
+            report=_make_report(passed=False, message='no beep detected', include_on_docket=False)
+        ))
+
+        self.assertIn('Buzz once:', content)
+        self.assertIn('FAILED: no beep detected', content)
 
     def test_lists_manual_checks_as_checkboxes(self):
         content = '\n'.join(self._lines())

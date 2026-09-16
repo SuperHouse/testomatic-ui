@@ -63,6 +63,10 @@ def build_docket_lines(test_suite, serial_number, operator_name, report, manual_
     ]
 
     for outcome in report.outcomes:
+        # issue #123: a step marked include_on_docket=False is left off the docket, but only
+        # while it's passing - a failure is never silently missing from the printed record.
+        if not outcome.step.include_on_docket and outcome.result.passed:
+            continue
         lines.append(f'{outcome.step.name}:')
         if outcome.result.passed:
             lines.append('  ok')

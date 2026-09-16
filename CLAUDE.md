@@ -4,7 +4,7 @@ A Django application providing the on-device web UI for [Testomatic](https://git
 
 ## Relationship to Register
 
-This project is developed **in conjunction with, and coupled to, Register**. It lives alongside Register's own checkout: `../register-macbook` (this machine) / `../register` (other checkouts) relative to this project's own folder. When working on a feature here that touches the Register API:
+This project is developed **in conjunction with, and coupled to, Register**. It lives alongside Register's own checkout at `../register` relative to this project's own folder (previously split across `../register`/`../register-macbook`, two checkouts of the same repo on different machines — consolidated back into one on 2026-09-16). When working on a feature here that touches the Register API:
 
 - Check Register's `CLAUDE.md` and `API.md` for the current shape of the endpoints, auth (`X-API-Key` header, keys are per-`authuser.User`), and access-control rules before assuming a shape.
 - A change that needs a new or modified Register API endpoint means editing Register's code too (`pyproj/device/api.py`, `pyproj/testing/api.py`, `pyproj/api/`) — this project cannot add server-side endpoints of its own for Register's data.
