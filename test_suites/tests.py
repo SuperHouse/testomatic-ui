@@ -568,7 +568,7 @@ class TestSuiteIsCurrentVersionTest(MediaIsolatedTestCase):
         self.assertFalse(v1.is_current_version())
 
 
-def _make_report(passed=True, message='ok', aborted=False, include_on_docket=True):
+def _make_report(passed=True, message='ok', aborted=False, include_on_docket=True, extra_outcomes=None):
     return RunReport(
         outcomes=[
             StepOutcome(
@@ -578,8 +578,21 @@ def _make_report(passed=True, message='ok', aborted=False, include_on_docket=Tru
                 ),
                 result=StepResult(passed=passed, message=message),
             ),
+            *(extra_outcomes or []),
         ],
         aborted=aborted,
+    )
+
+
+def _firmware_outcome(name, step_type='UPLOAD_FIRMWARE_ESPTOOL', passed=True, include_on_docket=True):
+    """A StepOutcome for one of the 4 UPLOAD_FIRMWARE_* step types (register#124's firmware
+    versions on the docket - see docket.build_docket_lines)."""
+    return StepOutcome(
+        step=TestStep(
+            order=2, step_type=step_type, name=name, abort_on_fail=False,
+            config_schema_version=None, config={}, include_on_docket=include_on_docket,
+        ),
+        result=StepResult(passed=passed, message='ok' if passed else 'upload failed'),
     )
 
 
@@ -612,10 +625,44 @@ class DocketLinesTest(TestCase):
         self.assertIn('H/W version: 9.1', lines)
         self.assertIn('Tested by: Jonathan Oxer', lines)
 
-    def test_omits_firmware_version(self):
+    def test_omits_firmware_section_when_no_firmware_steps(self):
         content = '\n'.join(self._lines())
 
-        self.assertNotIn('F/W version', content)
+        self.assertNotIn('Firmware:', content)
+
+    def test_lists_firmware_step_name_under_hardware_version(self):
+        report = _make_report(extra_outcomes=[_firmware_outcome('Firmware v8.1.1')])
+        lines = self._lines(report=report)
+
+        self.assertIn('Firmware:', lines)
+        hw_version_index = lines.index('H/W version: 9.1')
+        firmware_index = lines.index('Firmware:')
+        self.assertGreater(firmware_index, hw_version_index)
+        self.assertIn('  Firmware v8.1.1', lines)
+
+    def test_lists_every_firmware_step_including_ones_later_superseded(self):
+        report = _make_report(extra_outcomes=[
+            _firmware_outcome('Test image'),
+            _firmware_outcome('Firmware v8.1.1'),
+        ])
+        content = '\n'.join(self._lines(report=report))
+
+        self.assertIn('  Test image', content)
+        self.assertIn('  Firmware v8.1.1', content)
+
+    def test_marks_failed_firmware_step(self):
+        report = _make_report(extra_outcomes=[_firmware_outcome('Firmware v8.1.1', passed=False)])
+        content = '\n'.join(self._lines(report=report))
+
+        self.assertIn('  Firmware v8.1.1 (FAILED)', content)
+
+    def test_firmware_step_shown_even_when_suppressed_and_passed(self):
+        report = _make_report(
+            extra_outcomes=[_firmware_outcome('Firmware v8.1.1', include_on_docket=False)]
+        )
+        content = '\n'.join(self._lines(report=report))
+
+        self.assertIn('  Firmware v8.1.1', content)
 
     def test_lists_passing_automatic_check(self):
         content = '\n'.join(self._lines(report=_make_report(passed=True)))

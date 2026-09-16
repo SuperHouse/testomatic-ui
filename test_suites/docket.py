@@ -14,6 +14,7 @@ from pathlib import Path
 
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
+from testomatic.steps.firmware import FIRMWARE_STEP_TYPES
 
 DOCKET_IMAGE_WIDTH = 576
 FONT_SIZE = 22
@@ -38,14 +39,24 @@ def _load_font():
 
 
 def build_docket_lines(test_suite, serial_number, operator_name, report, manual_checks, finished_dt, device_details_url):
-    """Builds the Test Docket's plain-text content: header, automatic checks (from `report`,
-    testomatic-runner's RunReport), a manual-checks checklist, and a footer - laid out to match
-    the legacy prototype's output (see testomatic-ui#8 and 3990-MCM-20251019104515.txt).
+    """Builds the Test Docket's plain-text content: header (including firmware versions - see
+    below), automatic checks (from `report`, testomatic-runner's RunReport), a manual-checks
+    checklist, and a footer - laid out to match the legacy prototype's output (see
+    testomatic-ui#8 and 3990-MCM-20251019104515.txt).
 
-    F/W version is deliberately omitted here: no field anywhere in testomatic-ui/testomatic-runner
-    carries a firmware version today, and a real design decision is needed for designs with
-    multiple MCUs (one overarching version vs. reporting each binary's version individually)
-    before it can be added - out of scope for this pass.
+    Firmware versions (register#124): there's no separate "firmware version" field anywhere in
+    testomatic-ui/testomatic-runner/Register - the decision (see register#124's discussion) is to
+    report every UPLOAD_FIRMWARE_* step's own *name* instead, since that's already unique per
+    step and a Test Suite author is expected to name each one after what it uploads (e.g.
+    "Firmware v8.1.1", not "Upload Firmware" - this matters more now that the name ends up on the
+    printed docket). All such steps are reported, including a step whose firmware is later
+    overwritten by a subsequent step in the same run (e.g. a bootloader/test image flashed early,
+    replaced by the production image at the end) - nothing here tries to collapse multiple
+    firmware steps for what's presumably the same MCU down to "the" final version. This list is
+    a special case, independent of `include_on_docket`: unlike the pass/fail line each step gets
+    in "Automatic checks" below (which a passing step can opt out of via that flag), a firmware
+    step's name always appears here regardless, since it's reporting what's physically on the
+    board rather than a pass/fail result.
     """
     design = test_suite.design
     lines = [
@@ -56,6 +67,16 @@ def build_docket_lines(test_suite, serial_number, operator_name, report, manual_
         f'Device: {design.name}',
         f'Serial: {serial_number}',
         f'H/W version: {design.hw_version}',
+    ]
+
+    firmware_outcomes = [o for o in report.outcomes if o.step.step_type in FIRMWARE_STEP_TYPES]
+    if firmware_outcomes:
+        lines.append('Firmware:')
+        for outcome in firmware_outcomes:
+            suffix = '' if outcome.result.passed else ' (FAILED)'
+            lines.append(f'  {outcome.step.name}{suffix}')
+
+    lines += [
         f'Tested by: {operator_name}',
         finished_dt.strftime('%Y-%m-%d %H:%M:%S %z'),
         '',
