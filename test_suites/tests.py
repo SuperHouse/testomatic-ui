@@ -373,6 +373,32 @@ class TestSuiteDetailViewTest(MediaIsolatedTestCase):
         self.assertContains(response, '<span class="badge bg-success">Current Version</span>')
         self.assertNotContains(response, 'Old Version')
 
+    def test_shows_on_docket_badge_when_step_is_included(self):
+        # register#126: this badge mirrors Register's own design_detail.html/
+        # test_suite_version_detail.html - positive logic (badge present = will print on the
+        # Test Docket), not the old "Not on Docket" wording.
+        content = package_zip_bytes(test_steps=[
+            {'order': 1, 'step_type': 'BEEP', 'name': 'Buzz once', 'abort_on_fail': False,
+             'include_on_docket': True, 'config': {'duration_ms': 500}},
+        ])
+        self.test_suite.package_file.save('6.zip', ContentFile(content), save=True)
+
+        response = self.client.get(reverse('test_suites:detail', args=[self.test_suite.pk]))
+
+        self.assertContains(response, 'On Docket')
+        self.assertNotContains(response, 'Not on Docket')
+
+    def test_no_badge_when_step_is_not_included(self):
+        content = package_zip_bytes(test_steps=[
+            {'order': 1, 'step_type': 'DELAY', 'name': 'Settle', 'abort_on_fail': False,
+             'include_on_docket': False, 'config': {'delay_ms': 250}},
+        ])
+        self.test_suite.package_file.save('6.zip', ContentFile(content), save=True)
+
+        response = self.client.get(reverse('test_suites:detail', args=[self.test_suite.pk]))
+
+        self.assertNotContains(response, 'On Docket')
+
     def test_shows_old_version_badge_when_a_newer_version_exists(self):
         TestSuite.objects.create(
             register_id=7, design=self.design, version=3, status='SAVED', register_created_dt='2026-08-27T00:00:00Z'

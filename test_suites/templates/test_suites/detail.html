@@ -113,8 +113,8 @@
                                         {% if step.abort_on_fail %}
                                             <span class="badge bg-danger ms-auto">Abort On Fail</span>
                                         {% endif %}
-                                        {% if not step.include_on_docket %}
-                                            <span class="badge bg-secondary {% if not step.abort_on_fail %}ms-auto{% endif %}">Not on Docket</span>
+                                        {% if step.include_on_docket %}
+                                            <span class="badge bg-secondary {% if not step.abort_on_fail %}ms-auto{% endif %}">On Docket</span>
                                         {% endif %}
                                     </div>
                                     <div class="px-2 py-1 small text-body-secondary">
