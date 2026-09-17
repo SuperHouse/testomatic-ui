@@ -50,6 +50,13 @@ LINE_SPACING = 6
 MARGIN = 16
 QR_SIZE = 240
 RULE_THICKNESS = 3  # drawn section-divider lines (Automated Tests/Manual Checks), in px
+CHECKBOX_SIZE = 28  # a drawn tick-box, in place of literal "[  ]" text (issue #10 hand-tuning:
+# takes noticeably less horizontal room than 4 monospace characters, which is what was forcing
+# "Powers from prog header"/"Trigger activates valve" to truncate on a real printout even after
+# _justify() reserved a minimum gap - see the two tests this replaced), still large enough to
+# comfortably hand-tick with a pen
+CHECKBOX_GAP = 10  # between a manual check's label text and its drawn box
+CHECKBOX_THICKNESS = 2  # stroke width of the drawn box's outline, in px
 
 # Common monospace TTF locations, tried in order - the first is what Raspberry Pi OS/Debian ships
 # as part of the fonts-dejavu-core package. The second is where `brew install --cask font-dejavu`
@@ -90,34 +97,50 @@ class DocketLine(str):
     Subclasses str instead of being a separate dataclass so the existing plain-text consumers of
     build_docket_lines()'s output keep working with no change - TestRun.docket_text's
     '\\n'.join(lines), and every test that does `self.assertIn('some text', lines)` - while
-    render_docket_image() reads the extra bold/font_size/rule attributes to choose a font or draw
-    a horizontal rule instead of text. A plain str (as some tests pass straight to
-    render_docket_image()) works too: render_docket_image() falls back to non-bold/FONT_SIZE/not-
-    a-rule for anything without these attributes."""
+    render_docket_image() reads the extra bold/font_size/rule/checkbox attributes to choose a font,
+    or draw a horizontal rule or a manual-check tick-box instead of/alongside text. A plain str (as
+    some tests pass straight to render_docket_image()) works too: render_docket_image() falls back
+    to non-bold/FONT_SIZE/not-a-rule/no-checkbox for anything without these attributes."""
 
     bold: bool
     font_size: int
     rule: bool
+    checkbox: bool
 
-    def __new__(cls, text='', bold=False, font_size=None, rule=False):
+    def __new__(cls, text='', bold=False, font_size=None, rule=False, checkbox=False):
         line = str.__new__(cls, text)
         line.bold = bold
         line.font_size = font_size or FONT_SIZE
         line.rule = rule
+        line.checkbox = checkbox
         return line
+
+
+def _truncate_to_width(text, font, max_width):
+    """`text`, shortened with a trailing ellipsis if it doesn't fit in `max_width` px of `font` -
+    the pixel-accurate counterpart to _justify()'s character-count truncation, used where a line
+    shares its row with something drawn (a manual check's tick-box) rather than more text, so
+    there's no fixed character budget to truncate against."""
+    if font.getlength(text) <= max_width:
+        return text
+    while text and font.getlength(text + '…') > max_width:
+        text = text[:-1]
+    return text + '…'
 
 
 def _justify(left, right, width):
     """`left` and `right` on one line, `right` flush to the far end of a `width`-character line
-    and `left` filling the rest - used for both the Automatic Checks pass/fail column and the
-    Manual Checks checkbox column, so both stretch to the paper's full width (issue #11) instead
-    of only as far as their own longest entry. `left` is truncated with a trailing ellipsis if it
-    doesn't fit, keeping at least one space before `right` even when `left` alone would otherwise
-    exactly fill the available width (confirmed on a real printout: "Powers from prog header[  ]"
-    and "Trigger activates valve[  ]" both ran straight into the checkbox with no gap, since each
-    label happened to be exactly as long as `available`) - `right` is never truncated except in
-    the degenerate case where it alone exceeds `width` (a screen this narrow isn't a real receipt
-    printer)."""
+    and `left` filling the rest - used for the Automatic Checks pass/fail column, so it stretches
+    to the paper's full width (issue #11) instead of only as far as its own longest entry. (The
+    Manual Checks checklist used to share this same helper against a literal "[  ]" - see
+    _truncate_to_width()/CHECKBOX_SIZE instead: a real printout showed "Powers from prog
+    header[  ]"/"Trigger activates valve[  ]" running straight into the checkbox with no gap even
+    after the fix below, since 4 monospace characters of bracket left too little room; a drawn
+    tick-box costs less horizontal space and a pixel-measured truncation replaced this character-
+    count one for that column.) `left` is truncated with a trailing ellipsis if it doesn't fit,
+    keeping at least one space before `right` even when `left` alone would otherwise exactly fill
+    the available width - `right` is never truncated except in the degenerate case where it alone
+    exceeds `width` (a screen this narrow isn't a real receipt printer)."""
     if len(right) >= width:
         return right[:width]
     available = width - len(right) - 1  # always keep at least one space before `right`
@@ -203,8 +226,11 @@ def build_docket_lines(test_suite, serial_number, operator_name, report, manual_
     lines.append(DocketLine('-' * line_chars, rule=True))
     lines.append(DocketLine('Manual Checks'.center(line_chars), bold=True))
     if manual_checks:
+        font = _load_font()
+        max_label_px = DOCKET_IMAGE_WIDTH - 2 * MARGIN - CHECKBOX_SIZE - CHECKBOX_GAP
         for check in manual_checks:
-            lines.append(DocketLine(_justify(check.text, '[  ]', line_chars)))
+            label = _truncate_to_width(check.text, font, max_label_px)
+            lines.append(DocketLine(label, checkbox=True))
 
     footer_line_chars = _line_width_chars(font_size=FOOTER_FONT_SIZE)
     lines.append(DocketLine(''))
@@ -222,9 +248,10 @@ def render_docket_image(lines, device_details_url):
     handed to print_docket_image(). Returns a PIL.Image.Image.
 
     Each `line` may be a plain str (drawn non-bold at FONT_SIZE) or a DocketLine, whose bold/
-    font_size/rule attributes pick a font or, for a rule line, draw a horizontal divider instead
-    of text - `getattr(..., default)` reads them so a plain str (as some tests pass directly)
-    doesn't need the DocketLine wrapper."""
+    font_size/rule/checkbox attributes pick a font, draw a horizontal divider instead of text (a
+    rule line), or draw a manual check's tick-box alongside its label text (a checkbox line) -
+    `getattr(..., default)` reads them so a plain str (as some tests pass directly) doesn't need
+    the DocketLine wrapper."""
     fonts = {}  # (bold, font_size) -> ImageFont, loaded once per combination actually used
 
     def font_for(bold, font_size):
@@ -251,6 +278,13 @@ def render_docket_image(lines, device_details_url):
         else:
             font = font_for(getattr(line, 'bold', False), getattr(line, 'font_size', FONT_SIZE))
             draw.text((MARGIN, y), line, font=font, fill=0)
+            if getattr(line, 'checkbox', False):
+                box_left = DOCKET_IMAGE_WIDTH - MARGIN - CHECKBOX_SIZE
+                box_top = y + (height_here - CHECKBOX_SIZE) // 2
+                draw.rectangle(
+                    [box_left, box_top, box_left + CHECKBOX_SIZE, box_top + CHECKBOX_SIZE],
+                    outline=0, width=CHECKBOX_THICKNESS,
+                )
         y += height_here
 
     qr_x = (DOCKET_IMAGE_WIDTH - QR_SIZE) // 2

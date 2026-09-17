@@ -741,20 +741,33 @@ class DocketLinesTest(TestCase):
         self.assertIn(docket._justify('Buzz once', 'FAIL', line_chars), lines)
         self.assertIn('  FAILED: no beep detected', lines)
 
-    def test_lists_manual_checks_as_checkboxes(self):
-        content = '\n'.join(self._lines())
+    def test_lists_manual_checks_with_a_drawn_checkbox(self):
+        # issue #10 follow-up: a real printout showed the old literal "[  ]" text ran the two
+        # longest labels ("Powers from prog header"/"Trigger activates valve") straight into the
+        # brackets with no gap, then truncated them once _justify() reserved that gap - a drawn
+        # tick-box costs less horizontal room than 4 monospace bracket characters, so every label
+        # (including those two) fits untruncated with room to spare.
+        lines = self._lines(manual_checks=[
+            ManualCheck(order=1, text='Serial number on back'),
+            ManualCheck(order=2, text='Powers from prog header'),
+            ManualCheck(order=3, text='Trigger activates valve'),
+        ])
 
-        self.assertIn('Serial number on back', content)
-        self.assertIn('Blue power LED works', content)
-        self.assertIn('[  ]', content)
+        checkbox_lines = [line for line in lines if line.checkbox]
+        texts = [str(line) for line in checkbox_lines]
+        self.assertIn('Serial number on back', texts)
+        self.assertIn('Powers from prog header', texts)
+        self.assertIn('Trigger activates valve', texts)
+        self.assertTrue(all('…' not in text for text in texts))
+        self.assertNotIn('[  ]', '\n'.join(lines))
 
-    def test_manual_check_checkbox_uses_full_paper_width(self):
-        # issue #11: the checkbox sits flush against the paper's full printable width, not just
-        # past whichever check's own text happens to be longest.
-        lines = self._lines(manual_checks=[ManualCheck(order=1, text='Short')])
+    def test_manual_check_label_truncates_with_ellipsis_if_too_long_for_the_checkbox_row(self):
+        long_text = 'A' * 100
+        lines = self._lines(manual_checks=[ManualCheck(order=1, text=long_text)])
 
-        line_chars = docket._line_width_chars()
-        self.assertIn(docket._justify('Short', '[  ]', line_chars), lines)
+        checkbox_line = next(line for line in lines if line.checkbox)
+        self.assertTrue(checkbox_line.endswith('…'))
+        self.assertLess(len(checkbox_line), len(long_text))
 
     def test_footer_includes_suite_version_and_url(self):
         content = '\n'.join(self._lines())
