@@ -5,8 +5,22 @@
 The docket is rendered as a single bitmap image (not plain text) so a QR code can sit alongside
 the text on one seamless thermal-printer receipt - see build_docket_lines()/render_docket_image()
 below. DOCKET_IMAGE_WIDTH/FONT_SIZE assume an 80mm receipt printer at 203dpi (matching the sample
-"Printer_POS-80" queue name already in DeviceSettings.printer_name's help text); this hasn't been
-tested against real thermal-printer hardware yet and will likely need tuning once it has.
+"Printer_POS-80" queue name already in DeviceSettings.printer_name's help text) - confirmed against
+a real Printer_POS-80 test print (2026-09-17): its CUPS queue reports a printable area of 2.83in
+wide, which at 203dpi is ~574.5px, matching DOCKET_IMAGE_WIDTH=576 closely enough that no width
+change is needed. The one real-hardware surprise was the printable *length*, not width: CUPS's
+Media Size defaults to a fixed 210mm (~8.27in) page rather than a continuous roll - see the
+README's "Printer Setup (CUPS)" section for the per-device fix (Media Size -> 80(72mm) x 3276mm).
+Cut Options may also need per-installation tuning; also documented there. That page-length limit
+also explained an initially-puzzling *width* symptom on the first test print: the docket's native
+bitmap (576x2082px) is much taller relative to its width than the printable box was at 210mm, so
+CUPS's aspect-preserving fit-to-page scaling shrank the whole image - including its width, leaving
+an oversized blank margin on one side - to keep the too-tall content on one page. A second test
+print after the Media Size fix confirmed this: with height no longer the constraint, it printed
+using the paper's full width as expected, with no code change needed. (This also means the PNG
+saved by render_docket_image() doesn't need explicit DPI metadata - the fit-to-page math above
+matches observed behaviour using pixel dimensions and the printer's native 203dpi alone, with no
+sign CUPS/the driver falls back to a guessed DPI for an untagged PNG.)
 
 Layout (issue #10 and its sub-issues #11-#13): since the font is monospace, `_line_width_chars()`
 converts the printable pixel width into a character budget, and every list in
@@ -65,14 +79,18 @@ def _justify(left, right, width):
     and `left` filling the rest - used for both the Automatic Checks pass/fail column and the
     Manual Checks checkbox column, so both stretch to the paper's full width (issue #11) instead
     of only as far as their own longest entry. `left` is truncated with a trailing ellipsis if it
-    doesn't fit; `right` is never truncated except in the degenerate case where it alone exceeds
-    `width` (a screen this narrow isn't a real receipt printer)."""
+    doesn't fit, keeping at least one space before `right` even when `left` alone would otherwise
+    exactly fill the available width (confirmed on a real printout: "Powers from prog header[  ]"
+    and "Trigger activates valve[  ]" both ran straight into the checkbox with no gap, since each
+    label happened to be exactly as long as `available`) - `right` is never truncated except in
+    the degenerate case where it alone exceeds `width` (a screen this narrow isn't a real receipt
+    printer)."""
     if len(right) >= width:
         return right[:width]
-    available = width - len(right)
+    available = width - len(right) - 1  # always keep at least one space before `right`
     if len(left) > available:
         left = (left[:available - 1] + '…') if available > 1 else left[:available]
-    return left.ljust(available) + right
+    return left.ljust(available) + ' ' + right
 
 
 def _rule(label, width, fill='='):
