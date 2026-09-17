@@ -2,6 +2,7 @@
 # Copyright (C) 2026 SuperHouse Automation Pty Ltd <info@superhouse.tv>
 import dataclasses
 import io
+import zoneinfo
 
 from django.contrib.auth.decorators import login_required
 from django.core.files.base import ContentFile
@@ -210,10 +211,14 @@ def _print_test_run_docket(test_run, run_result, device_settings):
     """
     device_details_url = device_settings.device_details_url_stem + test_run.serial_number
     operator_name = test_run.operator.get_full_name() or test_run.operator.get_username()
+    # TestRun.finished_dt is stored in UTC (settings.USE_TZ) - converted to this device's own
+    # configured timezone here, rather than docket.py knowing anything about DeviceSettings, so
+    # the docket shows the time a human at this device actually experienced, not UTC.
+    finished_dt = timezone.localtime(test_run.finished_dt, zoneinfo.ZoneInfo(device_settings.timezone))
 
     lines = docket.build_docket_lines(
         test_run.test_suite, test_run.serial_number, operator_name,
-        run_result.report, run_result.manual_checks, test_run.finished_dt, device_details_url,
+        run_result.report, run_result.manual_checks, finished_dt, device_details_url,
     )
     image = docket.render_docket_image(lines, device_details_url)
 

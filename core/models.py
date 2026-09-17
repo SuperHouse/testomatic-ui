@@ -1,7 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 SuperHouse Automation Pty Ltd <info@superhouse.tv>
+import zoneinfo
+
 from django.conf import settings
 from django.db import models
+
+TIMEZONE_CHOICES = [(name, name) for name in sorted(zoneinfo.available_timezones())]
 
 
 class OperatorProfile(models.Model):
@@ -52,6 +56,15 @@ class DeviceSettings(models.Model):
       now, not per-customer/per-design - some customers want a vanity redirect URL instead, which
       is real but explicitly deferred; whatever per-customer/per-design override scheme gets
       built later would still need this field as its fallback, so it isn't wasted work.
+    - `timezone` (issue #10 follow-up): the IANA zone name (e.g. 'Australia/Melbourne') this
+      physical device is located in, used only to print the Test Docket's test-execution date/
+      time in local time - test_suites.views._print_test_run_docket() converts the (UTC-stored,
+      per settings.USE_TZ) TestRun.finished_dt into this zone before handing it to
+      docket.build_docket_lines(), rather than docket.py knowing anything about device config
+      itself. Deliberately per-device rather than reusing the project-wide settings.TIME_ZONE
+      ('Australia/Melbourne', same value as this field's default) - that setting is one value
+      shared by every device's deployment regardless of where it's physically installed, so a
+      device shipped somewhere else wouldn't be able to show its own local time without this.
 
     Deliberately does NOT hold anything for the serial port / debug-probe fields
     (UPLOAD_FIRMWARE_AVRDUDE's port, UPLOAD_FIRMWARE_OPENOCD's adapter_serial, etc.) - those stay
@@ -82,6 +95,11 @@ class DeviceSettings(models.Model):
         max_length=500, blank=True,
         help_text="Base URL this device prepends to a DUT's serial number to build the device "
                    "details link/QR code on the Test Docket, e.g. 'https://d.superlab.au/'.",
+    )
+    timezone = models.CharField(
+        max_length=63, choices=TIMEZONE_CHOICES, default='Australia/Melbourne',
+        help_text="This device's local timezone, used to print the Test Docket's test-execution "
+                   "date/time in local time rather than UTC.",
     )
 
     class Meta:

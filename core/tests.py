@@ -6,6 +6,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from __VERSION import VERSION
+from core.models import DeviceSettings
 from core.register_client import (
     RegisterAPIError,
     fetch_design_asset,
@@ -25,6 +26,40 @@ class VersionDisplayTest(TestCase):
 
         self.assertContains(response, VERSION)
         self.assertContains(response, 'sidebar-footer')
+
+
+class DeviceSettingsTimezoneTest(TestCase):
+    """A fresh device defaults to Australia/Melbourne (issue #10 follow-up - matches
+    settings.TIME_ZONE, the value every device effectively used before this field existed), and
+    the timezone is editable through the same Tester Settings page as printer_name etc."""
+
+    def test_defaults_to_australia_melbourne(self):
+        device_settings = DeviceSettings.get_solo()
+
+        self.assertEqual(device_settings.timezone, 'Australia/Melbourne')
+
+    def test_staff_user_can_change_the_timezone(self):
+        user = get_user_model().objects.create_user(username='admin', password='secret123', is_staff=True)
+        self.client.force_login(user)
+        device_settings = DeviceSettings.get_solo()
+
+        response = self.client.post(reverse('device_settings_edit'), {
+            'timezone': 'Asia/Tokyo',
+            'avrdude_path': '', 'openocd_path': '', 'stm32cubeprogrammer_path': '',
+            'printer_name': '', 'device_details_url_stem': '',
+        })
+
+        self.assertRedirects(response, reverse('device_settings_edit'))
+        device_settings.refresh_from_db()
+        self.assertEqual(device_settings.timezone, 'Asia/Tokyo')
+
+    def test_non_staff_user_cannot_reach_the_settings_page(self):
+        user = get_user_model().objects.create_user(username='operator', password='secret123')
+        self.client.force_login(user)
+
+        response = self.client.get(reverse('device_settings_edit'))
+
+        self.assertNotEqual(response.status_code, 200)
 
 
 class OperatorAvatarDisplayTest(TestCase):

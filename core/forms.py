@@ -10,7 +10,7 @@ class DeviceSettingsForm(forms.ModelForm):
         model = DeviceSettings
         fields = [
             'avrdude_path', 'openocd_path', 'stm32cubeprogrammer_path', 'printer_name',
-            'device_details_url_stem',
+            'device_details_url_stem', 'timezone',
         ]
         widgets = {
             'avrdude_path': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'avrdude'}),
@@ -24,4 +24,5 @@ class DeviceSettingsForm(forms.ModelForm):
             'device_details_url_stem': forms.TextInput(
                 attrs={'class': 'form-control', 'placeholder': 'https://d.superlab.au/'}
             ),
+            'timezone': forms.Select(attrs={'class': 'form-select'}),
         }

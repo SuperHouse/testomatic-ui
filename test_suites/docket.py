@@ -28,12 +28,13 @@ converts the printable pixel width into a character budget, and every list in
 or right-aligned against that same budget via `_justify()`/`_rule()`, rather than each padding
 itself to its own longest entry - this is what makes the docket actually use the full paper width
 (#11) instead of just the left portion the widest line happens to reach. Automatic Checks are one
-line per check, name left and PASS/FAIL right-aligned (#12), with a passing check's measured
-value (`StepResult.measured['display']`, set by the testomatic-runner executor that took the
-reading - see power.py/iomod.py) shown alongside PASS when the executor provides one (#13); a
-step type with no reading to show (BEEP, firmware uploads, etc.) just shows PASS/FAIL. A failing
-check still gets its own indented message line below, since failure text can run long and
-compressing it risks losing diagnostic detail.
+line per check, name left and PASS/FAIL right-aligned (#12) - always exactly "PASS"/"FAIL", so
+that column actually lines up down the page - with a measured value (`StepResult.measured
+['display']`, set by the testomatic-runner executor that took the reading - see power.py/iomod.py,
+on a passing *or* failing result) shown as "name: value" on the left when the executor provides
+one (#13); a step type with no reading to show (BEEP, firmware uploads, etc.) just shows the name.
+A failing check still gets its own indented message line below, since failure text can run long
+and compressing it risks losing diagnostic detail.
 """
 import subprocess
 import tempfile
@@ -253,6 +254,13 @@ def build_docket_lines(test_suite, serial_number, operator_name, report, manual_
     checklist, and a footer - laid out to match the legacy prototype's output (see
     testomatic-ui#8 and 3990-MCM-20251019104515.txt).
 
+    `finished_dt` is printed via a plain strftime() with no timezone conversion of its own - it's
+    expected to already be in whatever zone the caller wants shown (see
+    views.py:_print_test_run_docket(), which converts from TestRun.finished_dt's stored UTC into
+    this device's own DeviceSettings.timezone before calling this function), so this stays
+    unaware of DeviceSettings/device config, matching every other value here already being
+    resolved by the caller.
+
     Firmware versions (register#124): there's no separate "firmware version" field anywhere in
     testomatic-ui/testomatic-runner/Register - the decision (see register#124's discussion) is to
     report every UPLOAD_FIRMWARE_* step's own *name* instead, since that's already unique per
@@ -317,15 +325,19 @@ def build_docket_lines(test_suite, serial_number, operator_name, report, manual_
         # while it's passing - a failure is never silently missing from the printed record.
         if not outcome.step.include_on_docket and outcome.result.passed:
             continue
+        # issue #13: a step that took a measurement (e.g. READ_RAIL_VOLTAGE) reports its value
+        # alongside the step name, left of the PASS/FAIL column - not appended after PASS/FAIL as
+        # it used to be, which left the PASS/FAIL word itself at a different column on every line
+        # depending on whether/how long a value was, rather than forming a straight column like
+        # every other right-aligned line on the docket (see power.py/iomod.py for which step
+        # types set measured['display'], on a passing *or* failing result - a threshold check
+        # like READ_RAIL_VOLTAGE still measures a value when the reading is the reason it failed).
+        display = outcome.result.measured.get('display')
+        name = f'{outcome.step.name}: {display}' if display else outcome.step.name
         if outcome.result.passed:
-            # issue #13: a step that took a measurement (e.g. READ_RAIL_VOLTAGE) reports it
-            # alongside PASS; a step with nothing to measure (BEEP, firmware uploads, ...) just
-            # shows PASS - see power.py/iomod.py for which step types set measured['display'].
-            display = outcome.result.measured.get('display')
-            result_text = f'PASS  {display}' if display else 'PASS'
-            lines.append(DocketLine(_justify(outcome.step.name, result_text, line_chars)))
+            lines.append(DocketLine(_justify(name, 'PASS', line_chars)))
         else:
-            lines.append(DocketLine(_justify(outcome.step.name, 'FAIL', line_chars)))
+            lines.append(DocketLine(_justify(name, 'FAIL', line_chars)))
             lines.append(DocketLine(f'  FAILED: {outcome.result.message}'))
 
     if report.aborted:

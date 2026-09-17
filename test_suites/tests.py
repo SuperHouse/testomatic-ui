@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 SuperHouse Automation Pty Ltd <info@superhouse.tv>
+import datetime
 import io
 import json
 import shutil
@@ -777,7 +778,10 @@ class DocketLinesTest(TestCase):
         self.assertIn(docket._justify('Buzz once', 'FAIL', line_chars), lines)
         self.assertIn('  FAILED: no beep detected', lines)
 
-    def test_shows_measured_value_alongside_pass(self):
+    def test_shows_measured_value_before_the_pass_fail_column(self):
+        # the value used to be appended after PASS ("PASS  5.01V"), which left the PASS/FAIL word
+        # itself at a different column on every line depending on the value's length - it's now
+        # part of the name on the left, so PASS/FAIL is always the same 4 characters flush right.
         outcome = StepOutcome(
             step=TestStep(
                 order=2, step_type='READ_RAIL_VOLTAGE', name='5V Rail', abort_on_fail=False,
@@ -789,7 +793,24 @@ class DocketLinesTest(TestCase):
         lines = self._lines(report=report)
 
         line_chars = docket._line_width_chars()
-        self.assertIn(docket._justify('5V Rail', 'PASS  5.01V', line_chars), lines)
+        self.assertIn(docket._justify('5V Rail: 5.01V', 'PASS', line_chars), lines)
+
+    def test_shows_measured_value_on_a_failing_result_too(self):
+        # a threshold check (e.g. READ_RAIL_VOLTAGE) still measures a value when the reading is
+        # the reason it failed - see power.py/iomod.py, StepResult.measured is set either way.
+        outcome = StepOutcome(
+            step=TestStep(
+                order=2, step_type='READ_RAIL_VOLTAGE', name='5V Rail', abort_on_fail=False,
+                config_schema_version=None, config={},
+            ),
+            result=StepResult(passed=False, message='out of range', measured={'voltage': 6.5, 'display': '6.50V'}),
+        )
+        report = _make_report(extra_outcomes=[outcome])
+        lines = self._lines(report=report)
+
+        line_chars = docket._line_width_chars()
+        self.assertIn(docket._justify('5V Rail: 6.50V', 'FAIL', line_chars), lines)
+        self.assertIn('  FAILED: out of range', lines)
 
     def test_notes_aborted_run(self):
         content = self._content(report=_make_report(aborted=True))
@@ -1016,6 +1037,20 @@ class PrintTestRunDocketTest(MediaIsolatedTestCase):
         self.assertIsNotNone(self.test_run.docket_printed_dt)
         mock_subprocess_run.assert_called_once()
         self.assertEqual(mock_subprocess_run.call_args[0][0][:3], ['lp', '-d', 'Printer_POS-80'])
+
+    def test_prints_test_execution_time_in_devices_configured_timezone(self):
+        # TestRun.finished_dt is stored in UTC (settings.USE_TZ) - the docket should show it
+        # converted into this device's own DeviceSettings.timezone, not UTC or the project-wide
+        # settings.TIME_ZONE. Asia/Tokyo has no DST, so the expected offset is always +0900.
+        self.test_run.finished_dt = datetime.datetime(2026, 9, 17, 3, 0, 0, tzinfo=datetime.timezone.utc)
+        self.test_run.save()
+        DeviceSettings.objects.update_or_create(pk=1, defaults={'timezone': 'Asia/Tokyo'})
+        device_settings = DeviceSettings.get_solo()
+
+        views._print_test_run_docket(self.test_run, self.run_result, device_settings)
+
+        self.test_run.refresh_from_db()
+        self.assertIn('2026-09-17 12:00:00 +0900', self.test_run.docket_text)
 
     def test_saves_docket_but_skips_printing_when_no_printer_configured(self):
         device_settings = DeviceSettings.get_solo()  # printer_name blank by default
