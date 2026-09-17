@@ -58,3 +58,13 @@ will be truncated to a fixed page length instead of printing as one continuous r
 
 This is a per-device CUPS configuration step, not something `testomatic-ui`'s code can set — redo
 it on every new device's printer queue during bring-up.
+
+### Previewing a docket on a dev Mac
+
+`docket.py` renders the Test Docket with DejaVu Sans Mono, which Raspberry Pi OS/Debian ships as
+part of `fonts-dejavu-core`. A Mac has no such font by default, and Pillow silently falls back to
+its own tiny built-in bitmap font instead — which has different character-width metrics, so a
+preview rendered without the real font can't be trusted (text that fits/wraps/truncates on a real
+device may not in the preview, or vice versa). Fix: `brew install --cask font-dejavu`, which
+installs the identical `DejaVuSansMono.ttf`/`DejaVuSansMono-Bold.ttf` filenames into
+`~/Library/Fonts/` — `docket.py` already checks that path as a fallback after the Pi's own.

@@ -23,18 +23,28 @@ matches observed behaviour using pixel dimensions and the printer's native 203dp
 sign CUPS/the driver falls back to a guessed DPI for an untagged PNG.)
 
 Layout (issue #10 and its sub-issues #11-#13): since the font is monospace, `_line_width_chars()`
-converts the printable pixel width into a character budget, and every list in
-`build_docket_lines()` (Automatic Checks, Manual Checks, plus the header/section rules) is padded
-or right-aligned against that same budget via `_justify()`/`_rule()`, rather than each padding
-itself to its own longest entry - this is what makes the docket actually use the full paper width
-(#11) instead of just the left portion the widest line happens to reach. Automatic Checks are one
-line per check, name left and PASS/FAIL right-aligned (#12) - always exactly "PASS"/"FAIL", so
-that column actually lines up down the page - with a measured value (`StepResult.measured
-['display']`, set by the testomatic-runner executor that took the reading - see power.py/iomod.py,
-on a passing *or* failing result) shown as "name: value" on the left when the executor provides
-one (#13); a step type with no reading to show (BEEP, firmware uploads, etc.) just shows the name.
-A failing check still gets its own indented message line below, since failure text can run long
-and compressing it risks losing diagnostic detail.
+converts the printable pixel width into a character budget, and text that needs to align (the
+header/section rules, Automatic Checks' PASS/FAIL column) is padded or right-aligned against that
+same budget via `_justify()`/`_rule()`, rather than each padding itself to its own longest entry -
+this is what makes the docket actually use the full paper width (#11) instead of just the left
+portion the widest line happens to reach. Automatic Checks are one line per check, name left and
+PASS/FAIL right-aligned (#12) - always exactly "PASS"/"FAIL", so that column actually lines up
+down the page - with a measured value (`StepResult.measured['display']`, set by the
+testomatic-runner executor that took the reading - see power.py/iomod.py, on a passing *or*
+failing result) shown as "name: value" on the left when the executor provides one (#13); a step
+type with no reading to show (BEEP, firmware uploads, etc.) just shows the name. A failing check
+still gets its own indented message line below, since failure text can run long and compressing
+it risks losing diagnostic detail. Manual Checks no longer uses `_justify()` - see DocketLine's
+`checkbox` flag and `_truncate_to_width()`, a pixel-measured (not character-count) alternative
+adopted after `_justify()`'s fixed-width bracket text ("[  ]") left too little room for the two
+longest labels on a real printout.
+
+`build_docket_lines()`'s output isn't purely text: alongside `DocketLine` (which subclasses `str`,
+so plain-text consumers like TestRun.docket_text keep working) it can include a `DocketImage` (the
+Design thumbnail) and a `DocketResult` (the large pass/fail/aborted headline near the top of the
+docket) - see each class's own docstring. The test date/time is printed in whatever timezone the
+caller already converted it to (see views.py:_print_test_run_docket(), which uses this device's
+own DeviceSettings.timezone) - this module has no timezone awareness of its own.
 """
 import subprocess
 import tempfile
