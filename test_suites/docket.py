@@ -45,33 +45,66 @@ from testomatic.steps.firmware import FIRMWARE_STEP_TYPES
 
 DOCKET_IMAGE_WIDTH = 576
 FONT_SIZE = 33  # issue #10: was 22 - bumped ~50% for legibility on a printed receipt
+FOOTER_FONT_SIZE = 22  # smaller trailing "Test version"/URL/test-end block, set off from the body
 LINE_SPACING = 6
 MARGIN = 16
 QR_SIZE = 240
+RULE_THICKNESS = 3  # drawn section-divider lines (Automated Tests/Manual Checks), in px
 
 # Common monospace TTF locations, tried in order - the first is what Raspberry Pi OS/Debian ships
-# as part of the fonts-dejavu-core package. Falls back to Pillow's tiny built-in bitmap font (see
-# _load_font()) if none of these exist, which is legible but not print-quality - a real device
-# should have fonts-dejavu-core installed.
+# as part of the fonts-dejavu-core package. The second is where `brew install --cask font-dejavu`
+# puts the same font family on macOS (the same TTF filenames, so this is the one dev-machine
+# addition that keeps the "tried in order" list working unmodified on the Pi) - handy so a docket
+# preview rendered on a dev Mac actually looks like what prints on the device, instead of silently
+# falling back to Pillow's tiny built-in bitmap font (see _load_font()) below.
 _FONT_PATHS = [
     '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',
+    str(Path.home() / 'Library/Fonts/DejaVuSansMono.ttf'),
+]
+_FONT_PATHS_BOLD = [
+    '/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf',
+    str(Path.home() / 'Library/Fonts/DejaVuSansMono-Bold.ttf'),
 ]
 
 
-def _load_font():
-    for path in _FONT_PATHS:
+def _load_font(bold=False, size=FONT_SIZE):
+    for path in (_FONT_PATHS_BOLD if bold else _FONT_PATHS):
         if Path(path).exists():
-            return ImageFont.truetype(path, FONT_SIZE)
+            return ImageFont.truetype(path, size)
     return ImageFont.load_default()
 
 
-def _line_width_chars():
+def _line_width_chars(bold=False, font_size=FONT_SIZE):
     """How many monospace characters fit across the printable width (issue #11) - measured from
     the actual loaded font's own glyph metrics rather than a hardcoded guess, so this stays
     correct if FONT_SIZE or DOCKET_IMAGE_WIDTH changes, and stays in sync with what
-    render_docket_image() will actually draw (it loads the same font the same way)."""
-    char_width = _load_font().getlength('0')
+    render_docket_image() will actually draw (it loads the same font the same way). `bold`/
+    `font_size` let a caller measure against a non-default font - e.g. the smaller footer block -
+    since DejaVu Sans Mono Bold isn't guaranteed to share the regular weight's advance width."""
+    char_width = _load_font(bold=bold, size=font_size).getlength('0')
     return max(1, int((DOCKET_IMAGE_WIDTH - 2 * MARGIN) / char_width))
+
+
+class DocketLine(str):
+    """One line of Test Docket content, tagged with how render_docket_image() should draw it.
+    Subclasses str instead of being a separate dataclass so the existing plain-text consumers of
+    build_docket_lines()'s output keep working with no change - TestRun.docket_text's
+    '\\n'.join(lines), and every test that does `self.assertIn('some text', lines)` - while
+    render_docket_image() reads the extra bold/font_size/rule attributes to choose a font or draw
+    a horizontal rule instead of text. A plain str (as some tests pass straight to
+    render_docket_image()) works too: render_docket_image() falls back to non-bold/FONT_SIZE/not-
+    a-rule for anything without these attributes."""
+
+    bold: bool
+    font_size: int
+    rule: bool
+
+    def __new__(cls, text='', bold=False, font_size=None, rule=False):
+        line = str.__new__(cls, text)
+        line.bold = bold
+        line.font_size = font_size or FONT_SIZE
+        line.rule = rule
+        return line
 
 
 def _justify(left, right, width):
@@ -122,27 +155,28 @@ def build_docket_lines(test_suite, serial_number, operator_name, report, manual_
     line_chars = _line_width_chars()
     design = test_suite.design
     lines = [
-        'Test Report'.center(line_chars),
-        'www.SuperLab.au'.center(line_chars),
-        '',
-        f'Client: {design.client_name}',
-        f'Device: {design.name}',
-        f'Serial: {serial_number}',
-        f'H/W version: {design.hw_version}',
+        DocketLine('Test Report'.center(line_chars)),
+        DocketLine('www.SuperLab.au'.center(line_chars)),
+        DocketLine(''),
+        DocketLine(design.client_name),
+        DocketLine(design.name, bold=True),
+        DocketLine(f'Serial: {serial_number}'),
+        DocketLine(f'Version v{design.hw_version}'),
     ]
 
+    # register#124: a firmware step's name always appears here (no "Firmware:" header needed -
+    # the step names themselves already say what they are), left-aligned like everything else.
     firmware_outcomes = [o for o in report.outcomes if o.step.step_type in FIRMWARE_STEP_TYPES]
-    if firmware_outcomes:
-        lines.append('Firmware:')
-        for outcome in firmware_outcomes:
-            suffix = '' if outcome.result.passed else ' (FAILED)'
-            lines.append(f'  {outcome.step.name}{suffix}')
+    for outcome in firmware_outcomes:
+        suffix = '' if outcome.result.passed else ' (FAILED)'
+        lines.append(DocketLine(f'{outcome.step.name}{suffix}'))
 
     lines += [
-        f'Tested by: {operator_name}',
-        finished_dt.strftime('%Y-%m-%d %H:%M:%S %z'),
-        '',
-        _rule('Automatic checks', line_chars),
+        DocketLine(f'Tested by {operator_name}'),
+        DocketLine(finished_dt.strftime('%Y-%m-%d %H:%M:%S %z')),
+        DocketLine(''),
+        DocketLine('-' * line_chars, rule=True),
+        DocketLine('Automated Tests'.center(line_chars), bold=True),
     ]
 
     for outcome in report.outcomes:
@@ -156,43 +190,68 @@ def build_docket_lines(test_suite, serial_number, operator_name, report, manual_
             # shows PASS - see power.py/iomod.py for which step types set measured['display'].
             display = outcome.result.measured.get('display')
             result_text = f'PASS  {display}' if display else 'PASS'
-            lines.append(_justify(outcome.step.name, result_text, line_chars))
+            lines.append(DocketLine(_justify(outcome.step.name, result_text, line_chars)))
         else:
-            lines.append(_justify(outcome.step.name, 'FAIL', line_chars))
-            lines.append(f'  FAILED: {outcome.result.message}')
+            lines.append(DocketLine(_justify(outcome.step.name, 'FAIL', line_chars)))
+            lines.append(DocketLine(f'  FAILED: {outcome.result.message}'))
 
     if report.aborted:
-        lines.append('')
-        lines.append('ABORTED: abort-on-fail step failed, all power rails turned off')
+        lines.append(DocketLine(''))
+        lines.append(DocketLine('ABORTED: abort-on-fail step failed, all power rails turned off'))
 
-    lines.append('')
-    lines.append(_rule('Manual checks', line_chars))
+    lines.append(DocketLine(''))
+    lines.append(DocketLine('-' * line_chars, rule=True))
+    lines.append(DocketLine('Manual Checks'.center(line_chars), bold=True))
     if manual_checks:
         for check in manual_checks:
-            lines.append(_justify(check.text, '[  ]', line_chars))
+            lines.append(DocketLine(_justify(check.text, '[  ]', line_chars)))
 
-    lines.append('')
-    lines.append(f'Test version: v{test_suite.version} ({test_suite.register_created_dt.date()})')
-    lines.append(device_details_url)
-    lines.append(_rule('test end', line_chars, fill='-'))
+    footer_line_chars = _line_width_chars(font_size=FOOTER_FONT_SIZE)
+    lines.append(DocketLine(''))
+    lines.append(DocketLine(
+        f'Test version: v{test_suite.version} ({test_suite.register_created_dt.date()})',
+        font_size=FOOTER_FONT_SIZE,
+    ))
+    lines.append(DocketLine(device_details_url, font_size=FOOTER_FONT_SIZE))
+    lines.append(DocketLine(_rule('test end', footer_line_chars, fill='-'), font_size=FOOTER_FONT_SIZE))
     return lines
 
 
 def render_docket_image(lines, device_details_url):
     """Renders `lines` and a QR code for `device_details_url` onto a single bitmap, ready to be
-    handed to print_docket_image(). Returns a PIL.Image.Image."""
-    font = _load_font()
-    line_height = FONT_SIZE + LINE_SPACING
+    handed to print_docket_image(). Returns a PIL.Image.Image.
+
+    Each `line` may be a plain str (drawn non-bold at FONT_SIZE) or a DocketLine, whose bold/
+    font_size/rule attributes pick a font or, for a rule line, draw a horizontal divider instead
+    of text - `getattr(..., default)` reads them so a plain str (as some tests pass directly)
+    doesn't need the DocketLine wrapper."""
+    fonts = {}  # (bold, font_size) -> ImageFont, loaded once per combination actually used
+
+    def font_for(bold, font_size):
+        key = (bold, font_size)
+        if key not in fonts:
+            fonts[key] = _load_font(bold=bold, size=font_size)
+        return fonts[key]
+
+    def line_height_of(line):
+        return getattr(line, 'font_size', FONT_SIZE) + LINE_SPACING
+
     qr_image = qrcode.make(device_details_url).resize((QR_SIZE, QR_SIZE)).convert('L')
 
-    height = MARGIN * 3 + len(lines) * line_height + QR_SIZE
+    height = MARGIN * 3 + sum(line_height_of(line) for line in lines) + QR_SIZE
     image = Image.new('L', (DOCKET_IMAGE_WIDTH, height), color=255)
     draw = ImageDraw.Draw(image)
 
     y = MARGIN
     for line in lines:
-        draw.text((MARGIN, y), line, font=font, fill=0)
-        y += line_height
+        height_here = line_height_of(line)
+        if getattr(line, 'rule', False):
+            rule_y = y + height_here // 2
+            draw.line([(MARGIN, rule_y), (DOCKET_IMAGE_WIDTH - MARGIN, rule_y)], fill=0, width=RULE_THICKNESS)
+        else:
+            font = font_for(getattr(line, 'bold', False), getattr(line, 'font_size', FONT_SIZE))
+            draw.text((MARGIN, y), line, font=font, fill=0)
+        y += height_here
 
     qr_x = (DOCKET_IMAGE_WIDTH - QR_SIZE) // 2
     image.paste(qr_image, (qr_x, y + MARGIN))

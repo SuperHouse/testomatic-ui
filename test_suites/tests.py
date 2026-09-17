@@ -645,11 +645,17 @@ class DocketLinesTest(TestCase):
     def test_header_shows_client_device_serial_and_hw_version(self):
         lines = self._lines()
 
-        self.assertIn('Client: Acme', lines)
-        self.assertIn('Device: Widget', lines)
+        self.assertIn('Acme', lines)
+        self.assertIn('Widget', lines)
         self.assertIn('Serial: 3990', lines)
-        self.assertIn('H/W version: 9.1', lines)
-        self.assertIn('Tested by: Jonathan Oxer', lines)
+        self.assertIn('Version v9.1', lines)
+        self.assertIn('Tested by Jonathan Oxer', lines)
+
+    def test_device_name_is_bold(self):
+        lines = self._lines()
+
+        device_line = next(line for line in lines if line == 'Widget')
+        self.assertTrue(device_line.bold)
 
     def test_omits_firmware_section_when_no_firmware_steps(self):
         content = '\n'.join(self._lines())
@@ -660,11 +666,10 @@ class DocketLinesTest(TestCase):
         report = _make_report(extra_outcomes=[_firmware_outcome('Firmware v8.1.1')])
         lines = self._lines(report=report)
 
-        self.assertIn('Firmware:', lines)
-        hw_version_index = lines.index('H/W version: 9.1')
-        firmware_index = lines.index('Firmware:')
+        self.assertNotIn('Firmware:', lines)
+        hw_version_index = lines.index('Version v9.1')
+        firmware_index = lines.index('Firmware v8.1.1')
         self.assertGreater(firmware_index, hw_version_index)
-        self.assertIn('  Firmware v8.1.1', lines)
 
     def test_lists_every_firmware_step_including_ones_later_superseded(self):
         report = _make_report(extra_outcomes=[
@@ -673,14 +678,14 @@ class DocketLinesTest(TestCase):
         ])
         content = '\n'.join(self._lines(report=report))
 
-        self.assertIn('  Test image', content)
-        self.assertIn('  Firmware v8.1.1', content)
+        self.assertIn('Test image', content)
+        self.assertIn('Firmware v8.1.1', content)
 
     def test_marks_failed_firmware_step(self):
         report = _make_report(extra_outcomes=[_firmware_outcome('Firmware v8.1.1', passed=False)])
         content = '\n'.join(self._lines(report=report))
 
-        self.assertIn('  Firmware v8.1.1 (FAILED)', content)
+        self.assertIn('Firmware v8.1.1 (FAILED)', content)
 
     def test_firmware_step_shown_even_when_suppressed_and_passed(self):
         report = _make_report(
@@ -688,7 +693,7 @@ class DocketLinesTest(TestCase):
         )
         content = '\n'.join(self._lines(report=report))
 
-        self.assertIn('  Firmware v8.1.1', content)
+        self.assertIn('Firmware v8.1.1', content)
 
     def test_lists_passing_automatic_check_as_one_right_aligned_line(self):
         lines = self._lines(report=_make_report(passed=True))
@@ -756,6 +761,28 @@ class DocketLinesTest(TestCase):
 
         self.assertIn('Test version: v2', content)
         self.assertIn('https://d.superlab.au/3990', content)
+
+    def test_footer_lines_use_smaller_font(self):
+        lines = self._lines()
+
+        for text in (
+            next(l for l in lines if l.startswith('Test version:')),
+            next(l for l in lines if l == 'https://d.superlab.au/3990'),
+        ):
+            self.assertEqual(text.font_size, docket.FOOTER_FONT_SIZE)
+
+    def test_section_headers_are_bold_with_a_rule_line_above(self):
+        lines = self._lines()
+
+        tests_header = next(l for l in lines if l == 'Automated Tests'.center(docket._line_width_chars()))
+        checks_header = next(l for l in lines if l == 'Manual Checks'.center(docket._line_width_chars()))
+        self.assertTrue(tests_header.bold)
+        self.assertTrue(checks_header.bold)
+
+        tests_index = lines.index(tests_header)
+        checks_index = lines.index(checks_header)
+        self.assertTrue(lines[tests_index - 1].rule)
+        self.assertTrue(lines[checks_index - 1].rule)
 
 
 class DocketImageTest(TestCase):
