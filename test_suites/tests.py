@@ -12,6 +12,7 @@ from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from PIL import Image
 
 from testomatic.runner import RunReport, StepOutcome
 from testomatic.steps import StepResult
@@ -647,8 +648,8 @@ class DocketLinesTest(TestCase):
 
         self.assertIn('Acme', lines)
         self.assertIn('Widget', lines)
-        self.assertIn('Serial: 3990', lines)
-        self.assertIn('Version v9.1', lines)
+        self.assertIn('Serial #3990', lines)
+        self.assertIn('v9.1', lines)
         self.assertIn('Tested by Jonathan Oxer', lines)
 
     def test_device_name_is_bold(self):
@@ -667,7 +668,7 @@ class DocketLinesTest(TestCase):
         lines = self._lines(report=report)
 
         self.assertNotIn('Firmware:', lines)
-        hw_version_index = lines.index('Version v9.1')
+        hw_version_index = lines.index('v9.1')
         firmware_index = lines.index('Firmware v8.1.1')
         self.assertGreater(firmware_index, hw_version_index)
 
@@ -796,6 +797,69 @@ class DocketLinesTest(TestCase):
         checks_index = lines.index(checks_header)
         self.assertTrue(lines[tests_index - 1].rule)
         self.assertTrue(lines[checks_index - 1].rule)
+
+
+def _png_bytes(size=(400, 300), color=(0, 128, 255, 255)):
+    buffer = io.BytesIO()
+    Image.new('RGBA', size, color).save(buffer, format='PNG')
+    return buffer.getvalue()
+
+
+class DocketThumbnailTest(MediaIsolatedTestCase):
+    """A Design thumbnail (register issue #117's PCB_TOP Design Asset, already used on the Test
+    Suites list page) placed between the header and the Serial line - uses MediaIsolatedTestCase
+    since attaching a thumbnail means a real FileField write (see that class's own docstring)."""
+
+    def setUp(self):
+        self.design = Design.objects.create(
+            register_id=133, sku='ABC123', name='Widget', client_name='Acme', hw_version='9.1'
+        )
+        self.test_suite = TestSuite.objects.create(
+            register_id=6, design=self.design, version=2, status='SAVED', register_created_dt='2026-08-26T10:02:56Z'
+        )
+        self.test_suite.refresh_from_db()
+        self.manual_checks = [ManualCheck(order=1, text='Serial number on back')]
+
+    def _lines(self):
+        return docket.build_docket_lines(
+            self.test_suite, '3990', 'Jonathan Oxer', _make_report(), self.manual_checks,
+            timezone.now(), 'https://d.superlab.au/3990',
+        )
+
+    def test_no_image_line_when_design_has_no_thumbnail(self):
+        lines = self._lines()
+
+        self.assertFalse(any(isinstance(line, docket.DocketImage) for line in lines))
+
+    def test_thumbnail_placed_between_version_and_serial_lines(self):
+        self.design.thumbnail.save('133.png', ContentFile(_png_bytes()), save=True)
+
+        lines = self._lines()
+
+        image_indices = [i for i, line in enumerate(lines) if isinstance(line, docket.DocketImage)]
+        self.assertEqual(len(image_indices), 1)
+        version_index = lines.index('v9.1')
+        serial_index = lines.index('Serial #3990')
+        self.assertEqual(image_indices[0], version_index + 1)
+        self.assertEqual(serial_index, image_indices[0] + 1)
+
+    def test_thumbnail_scaled_to_fit_printable_width_and_max_height(self):
+        self.design.thumbnail.save('133.png', ContentFile(_png_bytes(size=(4000, 1000))), save=True)
+
+        lines = self._lines()
+
+        thumbnail = next(line for line in lines if isinstance(line, docket.DocketImage))
+        self.assertLessEqual(thumbnail.image.width, docket.DOCKET_IMAGE_WIDTH - 2 * docket.MARGIN)
+        self.assertLessEqual(thumbnail.image.height, docket.THUMBNAIL_MAX_HEIGHT)
+
+    def test_docket_text_skips_the_thumbnail_line(self):
+        self.design.thumbnail.save('133.png', ContentFile(_png_bytes()), save=True)
+
+        lines = self._lines()
+        text = '\n'.join(line for line in lines if isinstance(line, str))
+
+        self.assertIn('v9.1', text)
+        self.assertIn('Serial #3990', text)
 
 
 class DocketImageTest(TestCase):

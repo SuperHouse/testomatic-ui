@@ -57,6 +57,9 @@ CHECKBOX_SIZE = 28  # a drawn tick-box, in place of literal "[  ]" text (issue #
 # comfortably hand-tick with a pen
 CHECKBOX_GAP = 10  # between a manual check's label text and its drawn box
 CHECKBOX_THICKNESS = 2  # stroke width of the drawn box's outline, in px
+THUMBNAIL_MAX_HEIGHT = 300  # cap on a pasted Design thumbnail's height, so a large source render
+# doesn't dominate the receipt - width is already capped at the printable width like everything
+# else (DOCKET_IMAGE_WIDTH - 2*MARGIN)
 
 # Common monospace TTF locations, tried in order - the first is what Raspberry Pi OS/Debian ships
 # as part of the fonts-dejavu-core package. The second is where `brew install --cask font-dejavu`
@@ -114,6 +117,33 @@ class DocketLine(str):
         line.rule = rule
         line.checkbox = checkbox
         return line
+
+
+class DocketImage:
+    """A raster image embedded in the Test Docket's content list alongside DocketLine text lines -
+    so far just a Design's thumbnail (a PCB render, register issue #117's PCB_TOP Design Asset).
+    render_docket_image() pastes `image` centred instead of drawing text for one of these; a plain
+    DocketImage instance (rather than a DocketLine subclassing str) is fine here since nothing
+    needs this to behave like text - `build_docket_lines()`'s output already isn't just plain text
+    once bold/rule/checkbox lines are mixed in, and views.py's TestRun.docket_text assignment
+    filters to `isinstance(line, str)` before joining rather than needing every entry to be one.
+
+    Scaled to fit within `max_width`x`max_height` at construction time (never upscaled), so the
+    same already-sized image is used both to measure the docket's total height and to paste it,
+    rather than computing the size twice. Composited onto a white background first regardless of
+    the source's own mode, since a PCB render is often a transparent-background PNG and pasting
+    that directly onto the docket's white canvas without flattening would print stray black where
+    the alpha channel was transparent."""
+
+    def __init__(self, image, max_width, max_height):
+        image = image.convert('RGBA')
+        background = Image.new('RGBA', image.size, (255, 255, 255, 255))
+        image = Image.alpha_composite(background, image).convert('L')
+
+        scale = min(max_width / image.width, max_height / image.height, 1)
+        if scale < 1:
+            image = image.resize((max(1, round(image.width * scale)), max(1, round(image.height * scale))))
+        self.image = image
 
 
 def _truncate_to_width(text, font, max_width):
@@ -177,15 +207,20 @@ def build_docket_lines(test_suite, serial_number, operator_name, report, manual_
     """
     line_chars = _line_width_chars()
     design = test_suite.design
-    lines = [
+    lines: list[DocketLine | DocketImage] = [
         DocketLine('Test Report'.center(line_chars)),
         DocketLine('www.SuperLab.au'.center(line_chars)),
         DocketLine(''),
         DocketLine(design.client_name),
         DocketLine(design.name, bold=True),
-        DocketLine(f'Serial: {serial_number}'),
-        DocketLine(f'Version v{design.hw_version}'),
+        DocketLine(f'v{design.hw_version}'),
     ]
+
+    if design.thumbnail:
+        max_width = DOCKET_IMAGE_WIDTH - 2 * MARGIN
+        lines.append(DocketImage(Image.open(design.thumbnail), max_width, THUMBNAIL_MAX_HEIGHT))
+
+    lines.append(DocketLine(f'Serial #{serial_number}'))
 
     # register#124: a firmware step's name always appears here (no "Firmware:" header needed -
     # the step names themselves already say what they are), left-aligned like everything else.
@@ -247,11 +282,11 @@ def render_docket_image(lines, device_details_url):
     """Renders `lines` and a QR code for `device_details_url` onto a single bitmap, ready to be
     handed to print_docket_image(). Returns a PIL.Image.Image.
 
-    Each `line` may be a plain str (drawn non-bold at FONT_SIZE) or a DocketLine, whose bold/
+    Each `line` may be a plain str (drawn non-bold at FONT_SIZE), a DocketLine, whose bold/
     font_size/rule/checkbox attributes pick a font, draw a horizontal divider instead of text (a
     rule line), or draw a manual check's tick-box alongside its label text (a checkbox line) -
     `getattr(..., default)` reads them so a plain str (as some tests pass directly) doesn't need
-    the DocketLine wrapper."""
+    the DocketLine wrapper - or a DocketImage, pasted centred instead of any of the above."""
     fonts = {}  # (bold, font_size) -> ImageFont, loaded once per combination actually used
 
     def font_for(bold, font_size):
@@ -261,6 +296,8 @@ def render_docket_image(lines, device_details_url):
         return fonts[key]
 
     def line_height_of(line):
+        if isinstance(line, DocketImage):
+            return line.image.height
         return getattr(line, 'font_size', FONT_SIZE) + LINE_SPACING
 
     qr_image = qrcode.make(device_details_url).resize((QR_SIZE, QR_SIZE)).convert('L')
@@ -272,6 +309,10 @@ def render_docket_image(lines, device_details_url):
     y = MARGIN
     for line in lines:
         height_here = line_height_of(line)
+        if isinstance(line, DocketImage):
+            image.paste(line.image, ((DOCKET_IMAGE_WIDTH - line.image.width) // 2, y))
+            y += height_here
+            continue
         if getattr(line, 'rule', False):
             rule_y = y + height_here // 2
             draw.line([(MARGIN, rule_y), (DOCKET_IMAGE_WIDTH - MARGIN, rule_y)], fill=0, width=RULE_THICKNESS)

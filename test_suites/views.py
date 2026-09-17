@@ -217,7 +217,9 @@ def _print_test_run_docket(test_run, run_result, device_settings):
     )
     image = docket.render_docket_image(lines, device_details_url)
 
-    test_run.docket_text = '\n'.join(lines)
+    # a Design thumbnail (docket.DocketImage) has no plain-text form, so it's skipped here rather
+    # than breaking str.join() - docket_text is a record of the printed words, not a full replica.
+    test_run.docket_text = '\n'.join(line for line in lines if isinstance(line, str))
     buffer = io.BytesIO()
     image.save(buffer, format='PNG')
     test_run.docket_image.save(f'{test_run.pk}.png', ContentFile(buffer.getvalue()), save=False)
