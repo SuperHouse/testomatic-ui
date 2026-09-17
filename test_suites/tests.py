@@ -643,6 +643,11 @@ class DocketLinesTest(TestCase):
             timezone.now(), 'https://d.superlab.au/3990',
         )
 
+    def _content(self, **kwargs):
+        # a DocketResult (the large pass/fail/aborted headline) has no plain-text form and isn't
+        # a str, so '\n'.join() over the raw lines would raise - mirrors views.py's own filtering.
+        return '\n'.join(line for line in self._lines(**kwargs) if isinstance(line, str))
+
     def test_header_shows_client_device_serial_and_hw_version(self):
         lines = self._lines()
 
@@ -658,8 +663,37 @@ class DocketLinesTest(TestCase):
         device_line = next(line for line in lines if line == 'Widget')
         self.assertTrue(device_line.bold)
 
+    def test_long_device_name_word_wraps_instead_of_truncating(self):
+        # the Device name line used to have no overflow protection at all - unlike everywhere
+        # else on the docket, a name too long for the printable width just got silently clipped
+        # off the canvas edge, since draw.text() doesn't wrap on its own.
+        long_name = 'Monitor Control Module MK2 Super Deluxe Extended Edition'
+        design = Design.objects.create(
+            register_id=134, sku='XYZ789', name=long_name, client_name='Acme', hw_version='9.1',
+        )
+        test_suite = TestSuite.objects.create(
+            register_id=7, design=design, version=1, status='SAVED', register_created_dt='2026-08-26T10:02:56Z'
+        )
+        test_suite.refresh_from_db()
+
+        lines = docket.build_docket_lines(
+            test_suite, '3990', 'Jonathan Oxer', _make_report(), self.manual_checks,
+            timezone.now(), 'https://d.superlab.au/3990',
+        )
+
+        client_index = lines.index('Acme')
+        version_index = lines.index('v9.1')
+        name_lines = lines[client_index + 1:version_index]
+
+        self.assertGreater(len(name_lines), 1)
+        self.assertTrue(all(line.bold for line in name_lines))
+        max_name_px = docket.DOCKET_IMAGE_WIDTH - 2 * docket.MARGIN
+        font = docket._load_font(bold=True)
+        self.assertTrue(all(font.getlength(line) <= max_name_px for line in name_lines))
+        self.assertEqual(' '.join(name_lines), long_name)
+
     def test_omits_firmware_section_when_no_firmware_steps(self):
-        content = '\n'.join(self._lines())
+        content = self._content()
 
         self.assertNotIn('Firmware:', content)
 
@@ -677,14 +711,14 @@ class DocketLinesTest(TestCase):
             _firmware_outcome('Test image'),
             _firmware_outcome('Firmware v8.1.1'),
         ])
-        content = '\n'.join(self._lines(report=report))
+        content = self._content(report=report)
 
         self.assertIn('Test image', content)
         self.assertIn('Firmware v8.1.1', content)
 
     def test_marks_failed_firmware_step(self):
         report = _make_report(extra_outcomes=[_firmware_outcome('Firmware v8.1.1', passed=False)])
-        content = '\n'.join(self._lines(report=report))
+        content = self._content(report=report)
 
         self.assertIn('Firmware v8.1.1 (FAILED)', content)
 
@@ -692,9 +726,43 @@ class DocketLinesTest(TestCase):
         report = _make_report(
             extra_outcomes=[_firmware_outcome('Firmware v8.1.1', include_on_docket=False)]
         )
-        content = '\n'.join(self._lines(report=report))
+        content = self._content(report=report)
 
         self.assertIn('Firmware v8.1.1', content)
+
+    def test_rule_sits_directly_below_last_firmware_line_before_tested_by(self):
+        report = _make_report(extra_outcomes=[_firmware_outcome('Firmware v8.1.1')])
+        lines = self._lines(report=report)
+
+        firmware_index = lines.index('Firmware v8.1.1')
+        tested_by_index = lines.index('Tested by Jonathan Oxer')
+
+        self.assertEqual(tested_by_index, firmware_index + 2)
+        self.assertTrue(lines[firmware_index + 1].rule)
+
+    def test_passing_run_shows_passed_headline_with_tick(self):
+        lines = self._lines(report=_make_report(passed=True))
+
+        result = next(line for line in lines if isinstance(line, docket.DocketResult))
+        self.assertEqual(result.word, 'Passed')
+        self.assertEqual(result.icon, 'tick')
+
+    def test_failing_run_shows_failed_headline_with_cross(self):
+        lines = self._lines(report=_make_report(passed=False))
+
+        result = next(line for line in lines if isinstance(line, docket.DocketResult))
+        self.assertEqual(result.word, 'FAILED')
+        self.assertEqual(result.icon, 'cross')
+
+    def test_result_headline_sits_below_the_test_date(self):
+        lines = self._lines(report=_make_report(passed=True))
+
+        # the date line immediately follows "Tested by ..." (see build_docket_lines()), so its
+        # index is used rather than matching the date's own text, which timezone.now() varies.
+        tested_by_index = lines.index('Tested by Jonathan Oxer')
+        result_index = next(i for i, line in enumerate(lines) if isinstance(line, docket.DocketResult))
+
+        self.assertEqual(result_index, tested_by_index + 2)
 
     def test_lists_passing_automatic_check_as_one_right_aligned_line(self):
         lines = self._lines(report=_make_report(passed=True))
@@ -724,12 +792,19 @@ class DocketLinesTest(TestCase):
         self.assertIn(docket._justify('5V Rail', 'PASS  5.01V', line_chars), lines)
 
     def test_notes_aborted_run(self):
-        content = '\n'.join(self._lines(report=_make_report(aborted=True)))
+        content = self._content(report=_make_report(aborted=True))
 
         self.assertIn('ABORTED', content)
 
+    def test_aborted_run_shows_aborted_headline(self):
+        lines = self._lines(report=_make_report(aborted=True))
+
+        result = next(line for line in lines if isinstance(line, docket.DocketResult))
+        self.assertEqual(result.word, 'Aborted')
+        self.assertEqual(result.icon, 'cross')
+
     def test_omits_suppressed_step_that_passed(self):
-        content = '\n'.join(self._lines(report=_make_report(passed=True, include_on_docket=False)))
+        content = self._content(report=_make_report(passed=True, include_on_docket=False))
 
         self.assertNotIn('Buzz once', content)
 
@@ -754,24 +829,28 @@ class DocketLinesTest(TestCase):
             ManualCheck(order=3, text='Trigger activates valve'),
         ])
 
-        checkbox_lines = [line for line in lines if line.checkbox]
+        checkbox_lines = [line for line in lines if getattr(line, 'checkbox', False)]
         texts = [str(line) for line in checkbox_lines]
         self.assertIn('Serial number on back', texts)
         self.assertIn('Powers from prog header', texts)
         self.assertIn('Trigger activates valve', texts)
         self.assertTrue(all('…' not in text for text in texts))
-        self.assertNotIn('[  ]', '\n'.join(lines))
+        self.assertNotIn('[  ]', self._content(manual_checks=[
+            ManualCheck(order=1, text='Serial number on back'),
+            ManualCheck(order=2, text='Powers from prog header'),
+            ManualCheck(order=3, text='Trigger activates valve'),
+        ]))
 
     def test_manual_check_label_truncates_with_ellipsis_if_too_long_for_the_checkbox_row(self):
         long_text = 'A' * 100
         lines = self._lines(manual_checks=[ManualCheck(order=1, text=long_text)])
 
-        checkbox_line = next(line for line in lines if line.checkbox)
+        checkbox_line = next(line for line in lines if getattr(line, 'checkbox', False))
         self.assertTrue(checkbox_line.endswith('…'))
         self.assertLess(len(checkbox_line), len(long_text))
 
     def test_footer_includes_suite_version_and_url(self):
-        content = '\n'.join(self._lines())
+        content = self._content()
 
         self.assertIn('Test version: v2', content)
         self.assertIn('https://d.superlab.au/3990', content)
@@ -780,7 +859,7 @@ class DocketLinesTest(TestCase):
         lines = self._lines()
 
         for text in (
-            next(l for l in lines if l.startswith('Test version:')),
+            next(l for l in lines if isinstance(l, str) and l.startswith('Test version:')),
             next(l for l in lines if l == 'https://d.superlab.au/3990'),
         ):
             self.assertEqual(text.font_size, docket.FOOTER_FONT_SIZE)

@@ -60,6 +60,13 @@ CHECKBOX_THICKNESS = 2  # stroke width of the drawn box's outline, in px
 THUMBNAIL_MAX_HEIGHT = 300  # cap on a pasted Design thumbnail's height, so a large source render
 # doesn't dominate the receipt - width is already capped at the printable width like everything
 # else (DOCKET_IMAGE_WIDTH - 2*MARGIN)
+RESULT_FONT_SIZE = 60  # the large Passed/FAILED/Aborted headline near the top of the docket, so
+# the overall outcome is visible without reading the rest of the report
+RESULT_ICON_SIZE = 50  # a drawn tick/cross beside the headline word, not a font glyph - not every
+# TTF has a checkmark/cross in it, and drawing it matches how the rule lines/checkboxes elsewhere
+# on the docket are already drawn rather than relying on a specific font's glyph coverage
+RESULT_ICON_THICKNESS = 8
+RESULT_ICON_GAP = 20  # between the icon and the headline word
 
 # Common monospace TTF locations, tried in order - the first is what Raspberry Pi OS/Debian ships
 # as part of the fonts-dejavu-core package. The second is where `brew install --cask font-dejavu`
@@ -146,6 +153,37 @@ class DocketImage:
         self.image = image
 
 
+class DocketResult:
+    """The Test Docket's large pass/fail/aborted headline, placed below the test date so the
+    overall outcome is visible without reading the rest of the report. `icon` is 'tick' or
+    'cross' - which shape render_docket_image() draws beside `word` (see _draw_result_icon()) -
+    both drawn together as one centred unit at RESULT_FONT_SIZE/RESULT_ICON_SIZE, distinct from
+    DocketLine since neither the oversized font nor the icon fit that class's model of one line
+    of left-aligned text. RunReport only distinguishes passed/failed/aborted today - a future new
+    outcome kind belongs here, in build_docket_lines()'s outcome_word/outcome_icon selection."""
+
+    def __init__(self, word, icon):
+        self.word = word
+        self.icon = icon
+
+
+def _draw_result_icon(draw, icon, left, top, size, thickness):
+    """Draws a DocketResult's tick or cross, `size` px square with its top-left corner at
+    (`left`, `top`) - a drawn shape rather than a font glyph, see DocketResult's docstring for
+    why. `joint='curve'` on the tick's 2-segment polyline rounds the vertex instead of leaving a
+    thickness-sized notch where the two strokes meet."""
+    if icon == 'tick':
+        points = [
+            (left, top + size * 0.55),
+            (left + size * 0.38, top + size * 0.85),
+            (left + size, top + size * 0.15),
+        ]
+        draw.line(points, fill=0, width=thickness, joint='curve')
+    else:
+        draw.line([(left, top), (left + size, top + size)], fill=0, width=thickness)
+        draw.line([(left, top + size), (left + size, top)], fill=0, width=thickness)
+
+
 def _truncate_to_width(text, font, max_width):
     """`text`, shortened with a trailing ellipsis if it doesn't fit in `max_width` px of `font` -
     the pixel-accurate counterpart to _justify()'s character-count truncation, used where a line
@@ -156,6 +194,30 @@ def _truncate_to_width(text, font, max_width):
     while text and font.getlength(text + '…') > max_width:
         text = text[:-1]
     return text + '…'
+
+
+def _wrap_to_width(text, font, max_width):
+    """Word-wraps `text` into a list of lines that each fit within `max_width` px of `font`,
+    breaking only at spaces - used for the Device name, which (unlike every other line on the
+    docket) used to have no overflow protection at all: a name too long for the printable width
+    just got silently clipped off the canvas edge, since draw.text() doesn't wrap or truncate on
+    its own. A single word that alone doesn't fit within `max_width` falls back to
+    _truncate_to_width() for that one line rather than word-wrap leaving it to overflow anyway."""
+    words = text.split()
+    if not words:
+        return ['']
+    lines = []
+    current = ''
+    for word in words:
+        candidate = f'{current} {word}'.strip()
+        if font.getlength(candidate) <= max_width:
+            current = candidate
+            continue
+        if current:
+            lines.append(current)
+        current = word if font.getlength(word) <= max_width else _truncate_to_width(word, font, max_width)
+    lines.append(current)
+    return lines
 
 
 def _justify(left, right, width):
@@ -207,14 +269,16 @@ def build_docket_lines(test_suite, serial_number, operator_name, report, manual_
     """
     line_chars = _line_width_chars()
     design = test_suite.design
-    lines: list[DocketLine | DocketImage] = [
+    lines: list[DocketLine | DocketImage | DocketResult] = [
         DocketLine('Test Report'.center(line_chars)),
         DocketLine('www.SuperLab.au'.center(line_chars)),
         DocketLine(''),
         DocketLine(design.client_name),
-        DocketLine(design.name, bold=True),
-        DocketLine(f'v{design.hw_version}'),
     ]
+    max_name_px = DOCKET_IMAGE_WIDTH - 2 * MARGIN
+    for name_line in _wrap_to_width(design.name, _load_font(bold=True), max_name_px):
+        lines.append(DocketLine(name_line, bold=True))
+    lines.append(DocketLine(f'v{design.hw_version}'))
 
     if design.thumbnail:
         max_width = DOCKET_IMAGE_WIDTH - 2 * MARGIN
@@ -229,9 +293,20 @@ def build_docket_lines(test_suite, serial_number, operator_name, report, manual_
         suffix = '' if outcome.result.passed else ' (FAILED)'
         lines.append(DocketLine(f'{outcome.step.name}{suffix}'))
 
+    # the large pass/fail/aborted headline just below the date - see DocketResult's docstring for
+    # why an aborted run gets its own word/icon rather than folding into failed.
+    if report.aborted:
+        outcome_word, outcome_icon = 'Aborted', 'cross'
+    elif report.passed:
+        outcome_word, outcome_icon = 'Passed', 'tick'
+    else:
+        outcome_word, outcome_icon = 'FAILED', 'cross'
+
     lines += [
+        DocketLine('-' * line_chars, rule=True),
         DocketLine(f'Tested by {operator_name}'),
         DocketLine(finished_dt.strftime('%Y-%m-%d %H:%M:%S %z')),
+        DocketResult(outcome_word, outcome_icon),
         DocketLine(''),
         DocketLine('-' * line_chars, rule=True),
         DocketLine('Automated Tests'.center(line_chars), bold=True),
@@ -286,7 +361,8 @@ def render_docket_image(lines, device_details_url):
     font_size/rule/checkbox attributes pick a font, draw a horizontal divider instead of text (a
     rule line), or draw a manual check's tick-box alongside its label text (a checkbox line) -
     `getattr(..., default)` reads them so a plain str (as some tests pass directly) doesn't need
-    the DocketLine wrapper - or a DocketImage, pasted centred instead of any of the above."""
+    the DocketLine wrapper - a DocketImage, pasted centred instead of any of the above - or a
+    DocketResult, drawing its icon and large word together as one centred unit."""
     fonts = {}  # (bold, font_size) -> ImageFont, loaded once per combination actually used
 
     def font_for(bold, font_size):
@@ -298,6 +374,8 @@ def render_docket_image(lines, device_details_url):
     def line_height_of(line):
         if isinstance(line, DocketImage):
             return line.image.height
+        if isinstance(line, DocketResult):
+            return RESULT_FONT_SIZE + LINE_SPACING
         return getattr(line, 'font_size', FONT_SIZE) + LINE_SPACING
 
     qr_image = qrcode.make(device_details_url).resize((QR_SIZE, QR_SIZE)).convert('L')
@@ -311,6 +389,15 @@ def render_docket_image(lines, device_details_url):
         height_here = line_height_of(line)
         if isinstance(line, DocketImage):
             image.paste(line.image, ((DOCKET_IMAGE_WIDTH - line.image.width) // 2, y))
+            y += height_here
+            continue
+        if isinstance(line, DocketResult):
+            result_font = font_for(True, RESULT_FONT_SIZE)
+            content_width = RESULT_ICON_SIZE + RESULT_ICON_GAP + result_font.getlength(line.word)
+            icon_left = (DOCKET_IMAGE_WIDTH - content_width) / 2
+            icon_top = y + (height_here - RESULT_ICON_SIZE) / 2
+            _draw_result_icon(draw, line.icon, icon_left, icon_top, RESULT_ICON_SIZE, RESULT_ICON_THICKNESS)
+            draw.text((icon_left + RESULT_ICON_SIZE + RESULT_ICON_GAP, y), line.word, font=result_font, fill=0)
             y += height_here
             continue
         if getattr(line, 'rule', False):
