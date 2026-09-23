@@ -4,9 +4,10 @@ import io
 import json
 import zipfile
 
+from django.http import Http404
 from django.test import SimpleTestCase
 
-from .test_suite_package import parse_test_suite_package
+from .test_suite_package import parse_test_suite_package, read_package_file
 
 
 def _package_zip(test_steps=None, manual_checks=None, notes=None):
@@ -150,3 +151,55 @@ class StepDisplayConfigSummaryTest(SimpleTestCase):
         self.assertEqual(step.get_color(), '#6c757d')
         self.assertEqual(step.get_step_type_display(), 'Some Future Type')
         self.assertIn('foo', step.get_config_summary())
+
+
+class StepDisplayDiagnosticTest(SimpleTestCase):
+    """register#127: a step's optional diagnostic note/images."""
+
+    def test_defaults_to_empty_when_absent(self):
+        package = parse_test_suite_package(_package_zip(test_steps=[
+            {'order': 1, 'step_type': 'DELAY', 'name': 'Step', 'abort_on_fail': False, 'config': {'delay_ms': 1}},
+        ]))
+        [step] = package.steps
+        self.assertEqual(step.diagnostic_note, '')
+        self.assertEqual(step.diagnostic_images, [])
+
+    def test_reads_note_and_images_when_present(self):
+        package = parse_test_suite_package(_package_zip(test_steps=[
+            {
+                'order': 1, 'step_type': 'DELAY', 'name': 'Step', 'abort_on_fail': False, 'config': {'delay_ms': 1},
+                'diagnostic': {'note': 'Check U3', 'images': ['diagnostics/1/u3.jpg']},
+            },
+        ]))
+        [step] = package.steps
+        self.assertEqual(step.diagnostic_note, 'Check U3')
+        self.assertEqual(step.diagnostic_images, ['diagnostics/1/u3.jpg'])
+
+
+class ReadPackageFileTest(SimpleTestCase):
+    """register#127: reading a diagnostic image's bytes out of a Test Suite Package ZIP by its
+    package-relative path."""
+
+    def _package_with_file(self, path, content):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('widget-hw1_0-test-suite-v2/test-suite-definition.json', json.dumps({
+                'export_schema_version': 1,
+                'design': {'id': 133, 'sku': 'ABC123', 'name': 'Widget', 'hw_version': '1.0'},
+                'test_suite': {'id': 6, 'version': 2, 'status': 'SAVED', 'notes': None, 'created_dt': '2026-08-26T10:02:56Z'},
+                'test_steps': [], 'manual_checks': [],
+            }))
+            archive.writestr(f'widget-hw1_0-test-suite-v2/{path}', content)
+        buffer.seek(0)
+        return buffer
+
+    def test_reads_bytes_and_guesses_content_type(self):
+        package = self._package_with_file('diagnostics/12/u3.jpg', b'\xff\xd8\xff\xe0jpeg-bytes')
+        content, content_type = read_package_file(package, 'diagnostics/12/u3.jpg')
+        self.assertEqual(content, b'\xff\xd8\xff\xe0jpeg-bytes')
+        self.assertEqual(content_type, 'image/jpeg')
+
+    def test_raises_404_for_missing_path(self):
+        package = self._package_with_file('diagnostics/12/u3.jpg', b'jpeg-bytes')
+        with self.assertRaises(Http404):
+            read_package_file(package, 'diagnostics/12/does-not-exist.jpg')

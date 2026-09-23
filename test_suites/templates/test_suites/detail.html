@@ -64,6 +64,25 @@
         </div>
     {% endif %}
 
+    {% if run_failed_diagnostics %}
+        <div class="card mb-3 border-danger">
+            <div class="card-body">
+                <h5 class="card-title text-danger">Diagnostic Info</h5>
+                {% for diag in run_failed_diagnostics %}
+                    <div class="mb-3">
+                        <strong>{{ diag.step_name }}</strong>
+                        {% if diag.message %}<span class="text-body-secondary"> — {{ diag.message }}</span>{% endif %}
+                        {% if diag.diagnostic_note %}<p class="mb-2">{{ diag.diagnostic_note|linebreaksbr }}</p>{% endif %}
+                        {% for image_path in diag.diagnostic_images %}
+                            <img src="{% url 'test_suites:diagnostic_image' test_suite.pk image_path %}"
+                                 alt="" class="img-fluid rounded me-2 mb-2" style="max-height: 300px;">
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endif %}
+
     {% if test_run %}
         <div class="card mb-3">
             <div class="card-body d-flex justify-content-between align-items-center">
@@ -120,6 +139,16 @@
                                     <div class="px-2 py-1 small text-body-secondary">
                                         {{ step.get_config_summary }}
                                     </div>
+                                    {% if step.diagnostic_note or step.diagnostic_images %}
+                                        <div class="px-2 py-2 border-top">
+                                            <div class="small text-body-secondary text-uppercase mb-1">If this step fails</div>
+                                            {% if step.diagnostic_note %}<p class="mb-2">{{ step.diagnostic_note|linebreaksbr }}</p>{% endif %}
+                                            {% for image_path in step.diagnostic_images %}
+                                                <img src="{% url 'test_suites:diagnostic_image' test_suite.pk image_path %}"
+                                                     alt="" class="img-fluid rounded me-2 mb-2" style="max-height: 150px;">
+                                            {% endfor %}
+                                        </div>
+                                    {% endif %}
                                 </div>
                             </td>
                         </tr>

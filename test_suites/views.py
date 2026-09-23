@@ -7,7 +7,7 @@ import zoneinfo
 from django.contrib.auth.decorators import login_required
 from django.core.files.base import ContentFile
 from django.db.models import Q
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -18,7 +18,7 @@ from . import docket
 from .models import Design, TestRun, TestSuite
 from .serial_number import extract_serial_number
 from .sync import fetch_test_suite_package, sync_test_suites
-from .test_suite_package import parse_test_suite_package
+from .test_suite_package import parse_test_suite_package, read_package_file
 
 
 @login_required
@@ -90,8 +90,46 @@ def test_suite_run(request, pk):
         test_run = _save_test_run(test_suite, serial_number, request.user, run_result, started_dt)
         _print_test_run_docket(test_run, run_result, device_settings)
         context['test_run'] = test_run
+        context['run_failed_diagnostics'] = _failed_step_diagnostics(run_result.report)
 
     return render(request, 'test_suites/detail.html', context)
+
+
+def _failed_step_diagnostics(report):
+    """Pulls the diagnostic note/images (register#127) off every failed step in a completed
+    run, for test_suite_run() to show the operator right where the failure is reported - the
+    whole point of attaching this guidance to a step in the first place. `report.outcomes` is a
+    list of testomatic.runner.StepOutcome(step, result); `step` already carries
+    `diagnostic_note`/`diagnostic_images` straight from the parsed Test Suite Package (see
+    testomatic-runner's suite.py), so no re-parsing is needed here - only steps that actually
+    have something to show are included."""
+    return [
+        {
+            'step_name': outcome.step.name,
+            'message': outcome.result.message,
+            'diagnostic_note': outcome.step.diagnostic_note,
+            'diagnostic_images': outcome.step.diagnostic_images,
+        }
+        for outcome in report.outcomes
+        if not outcome.result.passed and (outcome.step.diagnostic_note or outcome.step.diagnostic_images)
+    ]
+
+
+@login_required
+def test_suite_diagnostic_image(request, pk, image_path):
+    """Streams one diagnostic image (register#127) straight out of test_suite's downloaded
+    package ZIP, by its path relative to the package root (e.g. `diagnostics/12/u3.jpg`, as
+    named in a step's `diagnostic.images` - see StepDisplay/read_package_file in
+    test_suite_package.py). Used both by the read-only detail page (previewing a step's
+    diagnostics before ever running the suite) and by the run-result page after an actual
+    failure."""
+    test_suite = get_object_or_404(TestSuite, pk=pk)
+    if not test_suite.package_file:
+        raise Http404('This Test Suite Package has not been downloaded yet.')
+
+    with test_suite.package_file.open('rb') as f:
+        content, content_type = read_package_file(f, image_path)
+    return HttpResponse(content, content_type=content_type)
 
 
 @login_required

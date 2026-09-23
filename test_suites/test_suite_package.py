@@ -11,7 +11,10 @@ Register is the source of truth for step types; an unrecognised step_type (e.g. 
 added after this file was last updated) falls back to a generic grey badge and a raw dump of its
 config, rather than crashing."""
 import json
+import mimetypes
 import zipfile
+
+from django.http import Http404
 
 DEFAULT_COLOR = '#6c757d'
 
@@ -140,6 +143,13 @@ class StepDisplay:
         self.abort_on_fail = bool(data.get('abort_on_fail'))
         self.include_on_docket = bool(data.get('include_on_docket', True))
         self.config = data.get('config') or {}
+        # register#127: operator-facing guidance for when this step fails, shown on this
+        # read-only detail page as a preview and on the run-result page after an actual
+        # failure (see test_suites/views.py:test_suite_run). Absent from `data` entirely on a
+        # step with neither - see Register's testing.views._serialize_diagnostic().
+        diagnostic = data.get('diagnostic') or {}
+        self.diagnostic_note = diagnostic.get('note', '')
+        self.diagnostic_images = diagnostic.get('images') or []
 
     def get_color(self):
         return STEP_TYPE_COLORS.get(self.step_type, DEFAULT_COLOR)
@@ -180,3 +190,18 @@ def parse_test_suite_package(file):
     manual_checks = [CheckDisplay(d) for d in data.get('manual_checks', [])]
     notes = (data.get('test_suite') or {}).get('notes')
     return TestSuitePackage(notes, steps, manual_checks)
+
+
+def read_package_file(file, relative_path):
+    """Reads one file out of a Test Suite Package ZIP by its path relative to the package root
+    (register#127) - e.g. a diagnostic image at `diagnostics/12/u3-location.jpg`, as named in a
+    step's `diagnostic.images` list (see StepDisplay above). `file`: same open, readable
+    binary file-like object parse_test_suite_package() takes. Returns (bytes, content_type).
+    Raises Http404 if the path doesn't exist in the archive - the same "let the view 404" outcome
+    Register's own download_design_asset uses for a missing/renamed file."""
+    with zipfile.ZipFile(file) as archive:
+        matches = [n for n in archive.namelist() if n.endswith(f'/{relative_path}')]
+        if not matches:
+            raise Http404(f'{relative_path!r} was not found in this Test Suite Package.')
+        content_type, _encoding = mimetypes.guess_type(relative_path)
+        return archive.read(matches[0]), content_type or 'application/octet-stream'

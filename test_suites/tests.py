@@ -554,6 +554,99 @@ class TestSuiteRunViewTest(MediaIsolatedTestCase):
 
         self.assertEqual(TestRun.objects.count(), 0)
 
+    @patch('test_suites.views._run_test_suite')
+    def test_shows_diagnostic_info_for_failed_step(self, mock_run):
+        """register#127: a failed step's diagnostic note/images are shown on the run-result
+        page, right where the operator is already looking."""
+        outcome = StepOutcome(
+            step=TestStep(
+                order=1, step_type='READ_RAIL_VOLTAGE', name='Check 5V', abort_on_fail=False,
+                config_schema_version=None, config={},
+                diagnostic_note='Check U3 for a cold solder joint.',
+                diagnostic_images=['diagnostics/1/u3.jpg'],
+            ),
+            result=StepResult(passed=False, message='out of range'),
+        )
+        report = RunReport(outcomes=[outcome], aborted=False)
+        mock_run.return_value = views.RunResult('Result: FAIL', False, None, report, [])
+
+        response = self.client.post(
+            reverse('test_suites:run', args=[self.test_suite.pk]), {'serial_number': '3990'}
+        )
+
+        self.assertContains(response, 'Diagnostic Info')
+        self.assertContains(response, 'Check U3 for a cold solder joint.')
+        self.assertContains(response, reverse('test_suites:diagnostic_image', args=[self.test_suite.pk, 'diagnostics/1/u3.jpg']))
+
+    @patch('test_suites.views._run_test_suite')
+    def test_no_diagnostic_info_shown_when_step_passes(self, mock_run):
+        outcome = StepOutcome(
+            step=TestStep(
+                order=1, step_type='READ_RAIL_VOLTAGE', name='Check 5V', abort_on_fail=False,
+                config_schema_version=None, config={},
+                diagnostic_note='Check U3 for a cold solder joint.',
+            ),
+            result=StepResult(passed=True, message='ok'),
+        )
+        report = RunReport(outcomes=[outcome], aborted=False)
+        mock_run.return_value = views.RunResult('Result: PASS', True, None, report, [])
+
+        response = self.client.post(
+            reverse('test_suites:run', args=[self.test_suite.pk]), {'serial_number': '3990'}
+        )
+
+        self.assertNotContains(response, 'Diagnostic Info')
+
+    @patch('test_suites.views._run_test_suite')
+    def test_no_diagnostic_info_shown_when_failed_step_has_none(self, mock_run):
+        mock_run.return_value = views.RunResult('Result: FAIL', False, None, _make_report(passed=False), [])
+
+        response = self.client.post(
+            reverse('test_suites:run', args=[self.test_suite.pk]), {'serial_number': '3990'}
+        )
+
+        self.assertNotContains(response, 'Diagnostic Info')
+
+
+class TestSuiteDiagnosticImageViewTest(MediaIsolatedTestCase):
+    """register#127: streaming a diagnostic image's bytes straight out of the downloaded
+    package ZIP."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='testuser', password='secret123')
+        self.client.force_login(self.user)
+        self.design = Design.objects.create(register_id=133, sku='ABC123', name='Widget', hw_version='1.0')
+        self.test_suite = TestSuite.objects.create(
+            register_id=6, design=self.design, version=2, status='SAVED', register_created_dt='2026-08-26T10:02:56Z'
+        )
+
+    def test_404_when_not_yet_fetched(self):
+        response = self.client.get(reverse('test_suites:diagnostic_image', args=[self.test_suite.pk, 'diagnostics/1/u3.jpg']))
+        self.assertEqual(response.status_code, 404)
+
+    def test_404_for_unknown_path_in_package(self):
+        self.test_suite.package_file.save('6.zip', ContentFile(package_zip_bytes()), save=True)
+        response = self.client.get(reverse('test_suites:diagnostic_image', args=[self.test_suite.pk, 'diagnostics/1/u3.jpg']))
+        self.assertEqual(response.status_code, 404)
+
+    def test_streams_image_bytes(self):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('widget-hw1_0-test-suite-v2/test-suite-definition.json', json.dumps({
+                'export_schema_version': 1,
+                'design': {'id': 133, 'sku': 'ABC123', 'name': 'Widget', 'hw_version': '1.0'},
+                'test_suite': {'id': 6, 'version': 2, 'status': 'SAVED', 'notes': None, 'created_dt': '2026-08-26T10:02:56Z'},
+                'test_steps': [], 'manual_checks': [],
+            }))
+            archive.writestr('widget-hw1_0-test-suite-v2/diagnostics/1/u3.jpg', b'\xff\xd8\xff\xe0jpeg-bytes')
+        self.test_suite.package_file.save('6.zip', ContentFile(buffer.getvalue()), save=True)
+
+        response = self.client.get(reverse('test_suites:diagnostic_image', args=[self.test_suite.pk, 'diagnostics/1/u3.jpg']))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'\xff\xd8\xff\xe0jpeg-bytes')
+        self.assertEqual(response['Content-Type'], 'image/jpeg')
+
 
 class TestSuiteIsCurrentVersionTest(MediaIsolatedTestCase):
     def setUp(self):

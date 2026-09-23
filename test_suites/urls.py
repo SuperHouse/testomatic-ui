@@ -13,5 +13,6 @@ urlpatterns = [
     path('<int:suite_id>/fetch/', views.test_suite_fetch, name='fetch'),
     path('<int:pk>/', views.test_suite_detail, name='detail'),
     path('<int:pk>/run/', views.test_suite_run, name='run'),
+    path('<int:pk>/diagnostic-image/<path:image_path>', views.test_suite_diagnostic_image, name='diagnostic_image'),
     path('runs/<int:pk>/reprint/', views.test_run_reprint, name='run_reprint'),
 ]
