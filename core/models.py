@@ -5,7 +5,15 @@ import zoneinfo
 from django.conf import settings
 from django.db import models
 
-TIMEZONE_CHOICES = [(name, name) for name in sorted(zoneinfo.available_timezones())]
+def timezone_choices():
+    """The IANA zone names installed on this machine right now, for DeviceSettingsForm's
+    `timezone` field (see core.forms). Deliberately NOT passed as the model field's own
+    `choices=` below - zoneinfo.available_timezones() varies by machine/OS tzdata version (e.g.
+    a dev Mac vs. a Raspberry Pi tester), and baking that machine-specific list into the model
+    field would leak into migration state, making `makemigrations` see a "change" every time
+    this runs somewhere with a different tzdata install. Enforced only at the form layer
+    instead, where a stale/unrecognised value just needs a human to pick a valid one again."""
+    return [(name, name) for name in sorted(zoneinfo.available_timezones())]
 
 
 class OperatorProfile(models.Model):
@@ -97,7 +105,7 @@ class DeviceSettings(models.Model):
                    "details link/QR code on the Test Docket, e.g. 'https://d.superlab.au/'.",
     )
     timezone = models.CharField(
-        max_length=63, choices=TIMEZONE_CHOICES, default='Australia/Melbourne',
+        max_length=63, default='Australia/Melbourne',
         help_text="This device's local timezone, used to print the Test Docket's test-execution "
                    "date/time in local time rather than UTC.",
     )
