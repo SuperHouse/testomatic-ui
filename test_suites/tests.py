@@ -269,6 +269,11 @@ class TestSuiteViewsTest(MediaIsolatedTestCase):
         self.assertLess(content.index('>ABC123<'), content.index('>Widget<'))
         self.assertLess(content.index('>Widget<'), content.index('>1.0<'))
 
+    def test_list_view_shows_test_suite_version_column(self):
+        response = self.client.get(reverse('test_suites:list'))
+
+        self.assertContains(response, '<td>v2</td>')
+
     def test_list_view_excludes_designs_with_no_test_suites(self):
         Design.objects.create(register_id=999, sku='NOSUITE', name='No Suites Yet', hw_version='1.0')
 

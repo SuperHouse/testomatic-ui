@@ -20,9 +20,9 @@
             </button>
         </div>
 
-        <form method="post" action="{% url 'test_suites:update' %}">
+        <form method="post" action="{% url 'test_suites:update' %}" id="update-now-form">
             {% csrf_token %}
-            <button type="submit" class="btn btn-primary">
+            <button type="submit" class="btn btn-primary" id="update-now-btn">
                 <i class="cil-reload me-1"></i>
                 Update Now
             </button>
@@ -40,7 +40,8 @@
                                 <th>Organisation</th>
                                 <th>SKU</th>
                                 <th>Name</th>
-                                <th>Version</th>
+                                <th>HW Version</th>
+                                <th>Test Suite Version</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -58,6 +59,7 @@
                                         <td>{{ design.sku }}</td>
                                         <td>{{ design.name }}</td>
                                         <td>{{ design.hw_version }}</td>
+                                        <td>v{{ latest.version }}</td>
                                     </tr>
                                 {% endwith %}
                             {% endfor %}
@@ -80,5 +82,13 @@
 {% endblock content %}
 
 {% block extra_js %}
-    <script>initServerFilter('designs-results');</script>
+    <script>
+        initServerFilter('designs-results');
+
+        document.getElementById('update-now-form').addEventListener('submit', function () {
+            var btn = document.getElementById('update-now-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Syncing…';
+        });
+    </script>
 {% endblock extra_js %}
