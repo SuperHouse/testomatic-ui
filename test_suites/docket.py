@@ -27,14 +27,13 @@ converts the printable pixel width into a character budget, and text that needs 
 header/section rules, Automatic Checks' PASS/FAIL column) is padded or right-aligned against that
 same budget via `_justify()`/`_rule()`, rather than each padding itself to its own longest entry -
 this is what makes the docket actually use the full paper width (#11) instead of just the left
-portion the widest line happens to reach. Automatic Checks are one line per check, name left and
-PASS/FAIL right-aligned (#12) - always exactly "PASS"/"FAIL", so that column actually lines up
-down the page - with a measured value (`StepResult.measured['display']`, set by the
-testomatic-runner executor that took the reading - see power.py/iomod.py, on a passing *or*
-failing result) shown as "name: value" on the left when the executor provides one (#13); a step
-type with no reading to show (BEEP, firmware uploads, etc.) just shows the name. A failing check
-still gets its own indented message line below, since failure text can run long and compressing
-it risks losing diagnostic detail. Manual Checks no longer uses `_justify()` - see DocketLine's
+portion the widest line happens to reach. Each Automatic Check is its name left and PASS/FAIL
+right-aligned (#12) - always exactly "PASS"/"FAIL", so that column actually lines up down the
+page - then, underneath in the smaller DETAIL_FONT_SIZE, its measured value
+(`StepResult.measured['display']`, #13) when passing or its failure message when failing; a step
+with no reading to show (BEEP, firmware uploads, etc.) is just the one line. See
+`_automatic_check_lines()` - the value used to share the name's line, which on a real Tester3
+docket (2026-11-18) cut most values off entirely. Manual Checks no longer uses `_justify()` - see DocketLine's
 `checkbox` flag and `_truncate_to_width()`, a pixel-measured (not character-count) alternative
 adopted after `_justify()`'s fixed-width bracket text ("[  ]") left too little room for the two
 longest labels on a real printout.
@@ -57,6 +56,11 @@ from testomatic.steps.firmware import FIRMWARE_STEP_TYPES
 DOCKET_IMAGE_WIDTH = 576
 FONT_SIZE = 33  # issue #10: was 22 - bumped ~50% for legibility on a printed receipt
 FOOTER_FONT_SIZE = 22  # smaller trailing "Test version"/URL/test-end block, set off from the body
+DETAIL_FONT_SIZE = 22  # an automatic check's value/failure line, under its name+PASS/FAIL line -
+# fits ~43 characters vs ~27 at FONT_SIZE, the same size the footer already proved legible on paper
+DETAIL_INDENT = '  '  # sets a check's detail line visually under its own name line
+CHECK_GAP_SIZE = 4  # an empty DocketLine at this font_size is a ~10px gap (font_size +
+# LINE_SPACING) after a check with detail lines, so each name+value pair reads as one unit
 LINE_SPACING = 6
 MARGIN = 16
 QR_SIZE = 240
@@ -252,6 +256,28 @@ def _justify(left, right, width):
     return left.ljust(available) + ' ' + right
 
 
+def _automatic_check_lines(name, status, detail, line_chars):
+    """One Automatic Check's docket lines: `name` with `status` ('PASS'/'FAIL') right-aligned on
+    the first line at FONT_SIZE - word-wrapped onto further lines rather than truncated if it's
+    too long, with `status` staying on the first line so the PASS/FAIL column still lines up -
+    then `detail` (the measured value, or the failure message), if any, word-wrapped underneath
+    at the smaller DETAIL_FONT_SIZE and indented. Replaced the single "name: value  PASS" line,
+    which on a real Tester3 docket (2026-11-18) left room for so little of either that most
+    values, and some names, were cut off entirely."""
+    font = _load_font()
+    name_chars = line_chars - len(status) - 1  # the space _justify() always keeps before status
+    name_parts = _wrap_to_width(name, font, name_chars * font.getlength('0'))
+    lines = [DocketLine(_justify(name_parts[0], status, line_chars))]
+    lines += [DocketLine(part) for part in name_parts[1:]]
+    if detail:
+        detail_font = _load_font(size=DETAIL_FONT_SIZE)
+        max_px = DOCKET_IMAGE_WIDTH - 2 * MARGIN - detail_font.getlength(DETAIL_INDENT)
+        for part in _wrap_to_width(detail, detail_font, max_px):
+            lines.append(DocketLine(DETAIL_INDENT + part, font_size=DETAIL_FONT_SIZE))
+        lines.append(DocketLine('', font_size=CHECK_GAP_SIZE))
+    return lines
+
+
 def _rule(label, width, fill='='):
     """A `label` centred within a `fill`-character rule line, `width` characters wide - used for
     the section headers/footer so they stretch to the same width as everything else (issue #11)."""
@@ -335,24 +361,22 @@ def build_docket_lines(test_suite, serial_number, operator_name, report, manual_
         # while it's passing - a failure is never silently missing from the printed record.
         if not outcome.step.include_on_docket and outcome.result.passed:
             continue
-        # issue #13: a step that took a measurement (e.g. READ_RAIL_VOLTAGE) reports its value
-        # alongside the step name, left of the PASS/FAIL column - not appended after PASS/FAIL as
-        # it used to be, which left the PASS/FAIL word itself at a different column on every line
-        # depending on whether/how long a value was, rather than forming a straight column like
-        # every other right-aligned line on the docket (see power.py/iomod.py for which step
-        # types set measured['display'], on a passing *or* failing result - a threshold check
-        # like READ_RAIL_VOLTAGE still measures a value when the reading is the reason it failed).
-        display = outcome.result.measured.get('display')
-        name = f'{outcome.step.name}: {display}' if display else outcome.step.name
+        # A passing check's detail line is its measured value (measured['display'], issue #13 -
+        # see power.py/iomod.py/led_spectral.py for which step types set it); a step with nothing
+        # measured stays one line. A failing check's detail is its failure message instead: every
+        # executor's message already includes the value it read *and* what it was checked
+        # against, so the operator sees why it failed without the value being repeated.
         if outcome.result.passed:
-            lines.append(DocketLine(_justify(name, 'PASS', line_chars)))
+            status, detail = 'PASS', outcome.result.measured.get('display')
         else:
-            lines.append(DocketLine(_justify(name, 'FAIL', line_chars)))
-            lines.append(DocketLine(f'  FAILED: {outcome.result.message}'))
+            status, detail = 'FAIL', outcome.result.message
+        lines += _automatic_check_lines(outcome.step.name, status, detail, line_chars)
 
     if report.aborted:
         lines.append(DocketLine(''))
-        lines.append(DocketLine('ABORTED: abort-on-fail step failed, all power rails turned off'))
+        max_px = DOCKET_IMAGE_WIDTH - 2 * MARGIN
+        aborted = 'ABORTED: abort-on-fail step failed, all power rails turned off'
+        lines += [DocketLine(part) for part in _wrap_to_width(aborted, _load_font(), max_px)]
 
     lines.append(DocketLine(''))
     lines.append(DocketLine('-' * line_chars, rule=True))

@@ -869,17 +869,18 @@ class DocketLinesTest(TestCase):
         line_chars = docket._line_width_chars()
         self.assertIn(docket._justify('Buzz once', 'PASS', line_chars), lines)
 
-    def test_lists_failing_automatic_check_with_message(self):
+    def test_lists_failing_automatic_check_with_message_underneath(self):
         lines = self._lines(report=_make_report(passed=False, message='no beep detected'))
 
         line_chars = docket._line_width_chars()
-        self.assertIn(docket._justify('Buzz once', 'FAIL', line_chars), lines)
-        self.assertIn('  FAILED: no beep detected', lines)
+        fail_index = lines.index(docket._justify('Buzz once', 'FAIL', line_chars))
+        detail = lines[fail_index + 1]
+        self.assertEqual(detail, docket.DETAIL_INDENT + 'no beep detected')
+        self.assertEqual(detail.font_size, docket.DETAIL_FONT_SIZE)
 
-    def test_shows_measured_value_before_the_pass_fail_column(self):
-        # the value used to be appended after PASS ("PASS  5.01V"), which left the PASS/FAIL word
-        # itself at a different column on every line depending on the value's length - it's now
-        # part of the name on the left, so PASS/FAIL is always the same 4 characters flush right.
+    def test_measured_value_goes_on_a_smaller_line_under_the_name(self):
+        # the value used to share the name's line ("5V Rail: 5.01V  PASS"), which at FONT_SIZE
+        # left room for so little that a real Tester3 docket cut most values off entirely.
         outcome = StepOutcome(
             step=TestStep(
                 order=2, step_type='READ_RAIL_VOLTAGE', name='5V Rail', abort_on_fail=False,
@@ -887,28 +888,68 @@ class DocketLinesTest(TestCase):
             ),
             result=StepResult(passed=True, message='ok', measured={'voltage': 5.01, 'display': '5.01V'}),
         )
-        report = _make_report(extra_outcomes=[outcome])
-        lines = self._lines(report=report)
+        lines = self._lines(report=_make_report(extra_outcomes=[outcome]))
 
         line_chars = docket._line_width_chars()
-        self.assertIn(docket._justify('5V Rail: 5.01V', 'PASS', line_chars), lines)
+        pass_index = lines.index(docket._justify('5V Rail', 'PASS', line_chars))
+        self.assertEqual(lines[pass_index + 1], docket.DETAIL_INDENT + '5.01V')
+        self.assertEqual(lines[pass_index + 1].font_size, docket.DETAIL_FONT_SIZE)
 
-    def test_shows_measured_value_on_a_failing_result_too(self):
-        # a threshold check (e.g. READ_RAIL_VOLTAGE) still measures a value when the reading is
-        # the reason it failed - see power.py/iomod.py, StepResult.measured is set either way.
+    def test_failing_result_shows_message_not_display_value(self):
+        # an executor's failure message already includes the value and what it was checked
+        # against (e.g. power.py's "5V rail: 6.500V (expected 4.8-5.2V)"), so it replaces the
+        # bare display value rather than repeating it.
         outcome = StepOutcome(
             step=TestStep(
                 order=2, step_type='READ_RAIL_VOLTAGE', name='5V Rail', abort_on_fail=False,
                 config_schema_version=None, config={},
             ),
-            result=StepResult(passed=False, message='out of range', measured={'voltage': 6.5, 'display': '6.50V'}),
+            result=StepResult(
+                passed=False, message='5V rail: 6.500V (expected 4.8-5.2V)',
+                measured={'voltage': 6.5, 'display': '6.50V'},
+            ),
         )
-        report = _make_report(extra_outcomes=[outcome])
-        lines = self._lines(report=report)
+        lines = self._lines(report=_make_report(extra_outcomes=[outcome]))
 
         line_chars = docket._line_width_chars()
-        self.assertIn(docket._justify('5V Rail: 6.50V', 'FAIL', line_chars), lines)
-        self.assertIn('  FAILED: out of range', lines)
+        fail_index = lines.index(docket._justify('5V Rail', 'FAIL', line_chars))
+        self.assertEqual(lines[fail_index + 1], docket.DETAIL_INDENT + '5V rail: 6.500V (expected 4.8-5.2V)')
+        self.assertNotIn(docket.DETAIL_INDENT + '6.50V', lines)
+
+    def test_step_with_no_measured_value_is_one_line(self):
+        lines = self._lines(report=_make_report(passed=True))
+
+        line_chars = docket._line_width_chars()
+        pass_index = lines.index(docket._justify('Buzz once', 'PASS', line_chars))
+        self.assertNotEqual(getattr(lines[pass_index + 1], 'font_size', None), docket.DETAIL_FONT_SIZE)
+
+    def test_long_check_name_wraps_keeping_pass_on_the_first_line(self):
+        outcome = StepOutcome(
+            step=TestStep(
+                order=2, step_type='READ_RAIL_CURRENT', name='Read 12V Rail Current Under Load',
+                abort_on_fail=False, config_schema_version=None, config={},
+            ),
+            result=StepResult(passed=True, message='ok', measured={'display': '182.4mA'}),
+        )
+        lines = self._lines(report=_make_report(extra_outcomes=[outcome]))
+
+        first = next(line for line in lines if isinstance(line, str) and line.startswith('Read 12V Rail'))
+        self.assertTrue(first.endswith('PASS'))
+        self.assertNotIn('…', first)
+        following = lines[lines.index(first) + 1]
+        self.assertEqual(f'{first[:-4].strip()} {following}', 'Read 12V Rail Current Under Load')
+
+    def test_long_detail_wraps_within_the_printable_width(self):
+        message = 'LED reading: R998 G2545 B23245 IR21 C29121 7.6lx; out of range: b 900 (min 15000)'
+        lines = self._lines(report=_make_report(passed=False, message=message))
+
+        detail_lines = [line for line in lines if getattr(line, 'font_size', None) == docket.DETAIL_FONT_SIZE
+                        and line.startswith(docket.DETAIL_INDENT)]
+        self.assertGreater(len(detail_lines), 1)
+        font = docket._load_font(size=docket.DETAIL_FONT_SIZE)
+        max_px = docket.DOCKET_IMAGE_WIDTH - 2 * docket.MARGIN
+        self.assertTrue(all(font.getlength(line) <= max_px for line in detail_lines))
+        self.assertEqual(' '.join(line.strip() for line in detail_lines), message)
 
     def test_notes_aborted_run(self):
         content = self._content(report=_make_report(aborted=True))
@@ -934,7 +975,7 @@ class DocketLinesTest(TestCase):
 
         line_chars = docket._line_width_chars()
         self.assertIn(docket._justify('Buzz once', 'FAIL', line_chars), lines)
-        self.assertIn('  FAILED: no beep detected', lines)
+        self.assertIn(docket.DETAIL_INDENT + 'no beep detected', lines)
 
     def test_lists_manual_checks_with_a_drawn_checkbox(self):
         # issue #10 follow-up: a real printout showed the old literal "[  ]" text ran the two
